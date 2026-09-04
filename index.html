@@ -171,7 +171,7 @@
 </div>
 <p class="note">
   Turnover uses CoinGecko global spot volume / circulating cap. AlphaX volume and OI come from CoinGecko’s derivatives book for AlphaX Futures.
-  High turnover with tiny OI is often wash or an empty book. Isolated margin, hard 24h time stop. CoinGecko is fetched through a proxy so the browser is not blocked by CORS.
+  High turnover with tiny OI is often wash or an empty book. Isolated margin, hard 24h time stop. CoinGecko is fetched through a cached proxy and paced to stay under the free rate limit.
 </p>
 <script>
 const CG_PROXY = "https://aramt.com/alphax-scanner/api.php";
@@ -212,12 +212,14 @@ async function getJson(url) {
       throw new Error("Network/CORS error talking to the data proxy. " + (err && err.message ? err.message : String(err)));
     }
     if (res.status === 429) {
-      $("status").textContent = "Rate limited. Waiting " + (6*(i+1)) + "s…";
-      await sleep(6000 * (i+1));
+      const wait = 15 * (i + 1);
+      $("status").textContent = "CoinGecko rate limit. Waiting " + wait + "s, then retrying…";
+      await sleep(wait * 1000);
       continue;
     }
     if (!res.ok) throw new Error(res.status + " " + url);
-    return res.json();
+    const data = await res.json();
+    return { data, cached: res.headers.get("X-Scanner-Cache") === "HIT" };
   }
   throw new Error("CoinGecko kept rate-limiting. Try again in a minute.");
 }
@@ -226,15 +228,17 @@ async function scan() {
   $("scanBtn").disabled = true;
   $("status").textContent = "Loading AlphaX perp book…";
   try {
-    const ax = await getJson(cgUrl("derivatives/exchanges/alphax-futures", { include_tickers: "unexpired" }));
+    const axRes = await getJson(cgUrl("derivatives/exchanges/alphax-futures", { include_tickers: "unexpired" }));
+    const ax = axRes.data;
     const tickers = (ax.tickers || []).filter(t => (t.target || "").toUpperCase() === "USDT");
-    $("status").textContent = `Loaded ${tickers.length} AlphaX perps. Fetching spot caps…`;
+    $("status").textContent = `Loaded ${tickers.length} AlphaX perps. Fetching spot caps slowly…`;
 
     const ids = [...new Set(tickers.map(t => t.coin_id).filter(Boolean))];
     const markets = [];
-    for (let i = 0; i < ids.length; i += 40) {
-      const chunk = ids.slice(i, i+40);
-      $("status").textContent = `Spot data ${Math.min(i+40, ids.length)} / ${ids.length}`;
+    const chunkSize = 80;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      $("status").textContent = `Spot data ${Math.min(i + chunkSize, ids.length)} / ${ids.length}`;
       const q = new URLSearchParams({
         vs_currency: "usd",
         ids: chunk.join(","),
@@ -242,9 +246,9 @@ async function scan() {
         per_page: "250",
         page: "1"
       });
-      const data = await getJson(cgUrl("coins/markets", q));
-      markets.push(...data);
-      await sleep(1200);
+      const marketRes = await getJson(cgUrl("coins/markets", q));
+      markets.push(...marketRes.data);
+      if (!marketRes.cached && i + chunkSize < ids.length) await sleep(4000);
     }
     const byId = Object.fromEntries(markets.map(m => [m.id, m]));
 
