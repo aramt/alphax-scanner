@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AlphaX Turnover Scanner</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #141b24;
+    --line: #243041;
+    --text: #e8eef6;
+    --muted: #8b9bb0;
+    --accent: #3ee0b2;
+    --warn: #ffb020;
+    --down: #ff5d6c;
+    --up: #3ee0b2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, #173326 0%, transparent 50%), var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 28px 24px 12px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.03em; }
+  .sub { color: var(--muted); max-width: 820px; line-height: 1.45; }
+  .controls {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 16px 24px 8px;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+  }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+  input, select, button {
+    width: 100%;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font: inherit;
+  }
+  button {
+    background: var(--accent);
+    color: #062018;
+    font-weight: 700;
+    cursor: pointer;
+    border: 0;
+    margin-top: 18px;
+  }
+  button.secondary { background: #223044; color: var(--text); }
+  .status {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 4px 24px 12px;
+    color: var(--muted);
+    min-height: 28px;
+  }
+  .table-wrap {
+    max-width: 1280px;
+    margin: 0 auto 40px;
+    padding: 0 24px;
+    overflow-x: auto;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; cursor: pointer; text-align: right; }
+  td.name, th.name { text-align: left; }
+  a { color: var(--accent); text-decoration: none; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: #203027;
+    color: var(--accent);
+  }
+  .note { max-width: 1280px; margin: 0 auto 32px; padding: 0 24px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AlphaX Turnover Scanner</h1>
+  <p class="sub">
+    Live screen of AlphaX USDT perps joined to CoinGecko spot market cap.
+    Rank by turnover (spot volume / cap) and 24h range. Built for 24-hour play-money scans — not a signal service.
+  </p>
+</header>
+
+<div class="controls">
+  <div>
+    <label>Max market cap ($M)</label>
+    <input id="maxCap" type="number" value="200" min="1" />
+  </div>
+  <div>
+    <label>Min market cap ($M)</label>
+    <input id="minCap" type="number" value="5" min="0" />
+  </div>
+  <div>
+    <label>Min turnover</label>
+    <input id="minTurn" type="number" value="0.3" step="0.05" />
+  </div>
+  <div>
+    <label>Min |24h move| %</label>
+    <input id="minMove" type="number" value="8" step="1" />
+  </div>
+  <div>
+    <label>Min AlphaX vol ($k)</label>
+    <input id="minAxVol" type="number" value="50" />
+  </div>
+  <div>
+    <button id="scanBtn">Scan now</button>
+  </div>
+</div>
+<div class="controls" style="grid-template-columns: 2fr 1fr 1fr 1fr;">
+  <div>
+    <label>Search ticker</label>
+    <input id="q" placeholder="USELESS, PENGU, HEMI…" />
+  </div>
+  <div>
+    <label>Hide TradFi / majors</label>
+    <select id="hideMajors">
+      <option value="yes" selected>Yes</option>
+      <option value="no">No</option>
+    </select>
+  </div>
+  <div>
+    <label>Sort</label>
+    <select id="sort">
+      <option value="turnover">Turnover</option>
+      <option value="move">|24h move|</option>
+      <option value="axVol">AlphaX volume</option>
+      <option value="volOi">AX vol / OI</option>
+      <option value="cap">Market cap</option>
+    </select>
+  </div>
+  <div>
+    <button class="secondary" id="csvBtn">Export CSV</button>
+  </div>
+</div>
+<div class="status" id="status">Idle. Click Scan now. CoinGecko may throttle; the tool retries automatically.</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th class="name">Ticker</th>
+        <th>Cap</th>
+        <th>Spot vol</th>
+        <th>Turnover</th>
+        <th>24h</th>
+        <th>1h</th>
+        <th>AX vol</th>
+        <th>AX OI</th>
+        <th>Vol/OI</th>
+        <th>Funding</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+<p class="note">
+  Turnover uses CoinGecko global spot volume / circulating cap. AlphaX volume and OI come from CoinGecko’s derivatives book for AlphaX Futures.
+  High turnover with tiny OI is often wash or an empty book. Isolated margin, hard 24h time stop. This page talks to api.coingecko.com only.
+</p>
+<script>
+const CG = "https://api.coingecko.com/api/v3";
+const MAJORS = new Set(["btc","eth","sol","xrp","bnb","doge","ada","trx","avax","link","sui","hbar","uni","aave","dot","ltc","bch","near","atom","apt","ton","pepe","shib","wld","hype"]);
+const TRADFI_HINT = /^(xau|xag|uso|nas100|spx500|aapl|tsla|amzn|nvda|msft|meta|googl|nflx|intc|qcom|regn|biib|naver|hanmi|arkk|mRNA|gold|silver|oil|wti)/i;
+
+let rows = [];
+
+const $ = (id) => document.getElementById(id);
+const fmtUsd = (n) => {
+  if (n == null || !isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return "$" + (n/1e9).toFixed(2) + "B";
+  if (abs >= 1e6) return "$" + (n/1e6).toFixed(2) + "M";
+  if (abs >= 1e3) return "$" + (n/1e3).toFixed(0) + "k";
+  return "$" + n.toFixed(0);
+};
+const fmtPct = (n) => n == null || !isFinite(n) ? "—" : (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
+const fmtNum = (n, d=2) => n == null || !isFinite(n) ? "—" : n.toFixed(d);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function getJson(url) {
+  for (let i = 0; i < 5; i++) {
+    const res = await fetch(url);
+    if (res.status === 429) {
+      $("status").textContent = "Rate limited. Waiting " + (6*(i+1)) + "s…";
+      await sleep(6000 * (i+1));
+      continue;
+    }
+    if (!res.ok) throw new Error(res.status + " " + url);
+    return res.json();
+  }
+  throw new Error("CoinGecko kept rate-limiting. Try again in a minute.");
+}
+
+async function scan() {
+  $("scanBtn").disabled = true;
+  $("status").textContent = "Loading AlphaX perp book…";
+  try {
+    const ax = await getJson(CG + "/derivatives/exchanges/alphax-futures?include_tickers=unexpired");
+    const tickers = (ax.tickers || []).filter(t => (t.target || "").toUpperCase() === "USDT");
+    $("status").textContent = `Loaded ${tickers.length} AlphaX perps. Fetching spot caps…`;
+
+    const ids = [...new Set(tickers.map(t => t.coin_id).filter(Boolean))];
+    const markets = [];
+    for (let i = 0; i < ids.length; i += 40) {
+      const chunk = ids.slice(i, i+40);
+      $("status").textContent = `Spot data ${Math.min(i+40, ids.length)} / ${ids.length}`;
+      const q = new URLSearchParams({
+        vs_currency: "usd",
+        ids: chunk.join(","),
+        price_change_percentage: "1h,24h,7d",
+        per_page: "250",
+        page: "1"
+      });
+      const data = await getJson(CG + "/coins/markets?" + q.toString());
+      markets.push(...data);
+      await sleep(1200);
+    }
+    const byId = Object.fromEntries(markets.map(m => [m.id, m]));
+
+    rows = tickers.map(t => {
+      const m = t.coin_id ? byId[t.coin_id] : null;
+      const cap = m && m.market_cap;
+      const spotVol = m && m.total_volume;
+      const axVol = t.converted_volume && Number(t.converted_volume.usd);
+      const oi = Number(t.open_interest_usd);
+      return {
+        symbol: (t.base || t.symbol || "").replace(/_USDT$/, ""),
+        coinId: t.coin_id,
+        name: m ? m.name : t.base,
+        cap,
+        spotVol,
+        turnover: cap > 0 ? spotVol / cap : null,
+        chg24: m && m.price_change_percentage_24h,
+        chg1h: m && m.price_change_percentage_1h_in_currency,
+        axVol,
+        oi,
+        volOi: oi > 0 ? axVol / oi : null,
+        funding: t.funding_rate,
+        tradeUrl: t.trade_url,
+        geckoUrl: t.coin_id ? "https://www.coingecko.com/en/coins/" + t.coin_id : null,
+        last: t.last
+      };
+    });
+    render();
+    $("status").textContent = `Ready. ${rows.length} perps joined. ${markets.length} had spot cap data.`;
+  } catch (e) {
+    $("status").textContent = e.message || String(e);
+  } finally {
+    $("scanBtn").disabled = false;
+  }
+}
+
+function filtered() {
+  const maxCap = Number($("maxCap").value) * 1e6;
+  const minCap = Number($("minCap").value) * 1e6;
+  const minTurn = Number($("minTurn").value);
+  const minMove = Number($("minMove").value);
+  const minAxVol = Number($("minAxVol").value) * 1000;
+  const q = $("q").value.trim().toLowerCase();
+  const hide = $("hideMajors").value === "yes";
+  const sort = $("sort").value;
+
+  let out = rows.filter(r => {
+    if (q && !((r.symbol||"").toLowerCase().includes(q) || (r.name||"").toLowerCase().includes(q))) return false;
+    if (hide && (MAJORS.has((r.symbol||"").toLowerCase()) || TRADFI_HINT.test(r.symbol||""))) return false;
+    if (r.cap != null && (r.cap > maxCap || r.cap < minCap)) return false;
+    if (r.cap == null && hide) return false;
+    if (r.turnover != null && r.turnover < minTurn) return false;
+    if (r.chg24 != null && Math.abs(r.chg24) < minMove) return false;
+    if (r.axVol != null && r.axVol < minAxVol) return false;
+    return true;
+  });
+
+  const keyFn = {
+    turnover: r => r.turnover || -1,
+    move: r => Math.abs(r.chg24 || 0),
+    axVol: r => r.axVol || -1,
+    volOi: r => r.volOi || -1,
+    cap: r => r.cap || -1
+  }[sort];
+  out.sort((a,b) => keyFn(b) - keyFn(a));
+  return out;
+}
+
+function render() {
+  const list = filtered();
+  $("tbody").innerHTML = list.map(r => {
+    const moveCls = (r.chg24 || 0) >= 0 ? "up" : "down";
+    const turnBadge = r.turnover >= 1 ? `<span class="badge">${fmtNum(r.turnover,2)}x</span>` : fmtNum(r.turnover,2);
+    return `<tr>
+      <td class="name"><strong>${r.symbol}</strong><div style="color:#8b9bb0;font-size:11px">${r.name || ""}</div></td>
+      <td>${fmtUsd(r.cap)}</td>
+      <td>${fmtUsd(r.spotVol)}</td>
+      <td>${turnBadge}</td>
+      <td class="${moveCls}">${fmtPct(r.chg24)}</td>
+      <td class="${(r.chg1h||0)>=0?'up':'down'}">${fmtPct(r.chg1h)}</td>
+      <td>${fmtUsd(r.axVol)}</td>
+      <td>${fmtUsd(r.oi)}</td>
+      <td>${fmtNum(r.volOi,1)}</td>
+      <td>${r.funding == null ? "—" : Number(r.funding).toFixed(3)+"%"}</td>
+      <td>${r.tradeUrl ? `<a href="${r.tradeUrl}" target="_blank">AlphaX</a>` : ""} ${r.geckoUrl ? `<a href="${r.geckoUrl}" target="_blank">CG</a>` : ""}</td>
+    </tr>`;
+  }).join("");
+  if (!list.length && rows.length) $("status").textContent = "No rows match the current filters. Loosen cap / turnover / move.";
+}
+
+function exportCsv() {
+  const list = filtered();
+  const headers = ["symbol","name","cap","spotVol","turnover","chg24","chg1h","axVol","oi","volOi","funding","tradeUrl"];
+  const lines = [headers.join(",")].concat(list.map(r => headers.map(h => {
+    const v = r[h];
+    return typeof v === "string" ? `"${v.replaceAll('"','""')}"` : (v ?? "");
+  }).join(",")));
+  const blob = new Blob([lines.join("\n")], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "alphax-turnover-scan.csv";
+  a.click();
+}
+
+["maxCap","minCap","minTurn","minMove","minAxVol","q","hideMajors","sort"].forEach(id => {
+  $(id).addEventListener("input", render);
+  $(id).addEventListener("change", render);
+});
+$("scanBtn").addEventListener("click", scan);
+$("csvBtn").addEventListener("click", exportCsv);
+</script>
+</body>
+</html>
