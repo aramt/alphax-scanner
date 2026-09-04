@@ -171,10 +171,10 @@
 </div>
 <p class="note">
   Turnover uses CoinGecko global spot volume / circulating cap. AlphaX volume and OI come from CoinGecko’s derivatives book for AlphaX Futures.
-  High turnover with tiny OI is often wash or an empty book. Isolated margin, hard 24h time stop. This page talks to api.coingecko.com only.
+  High turnover with tiny OI is often wash or an empty book. Isolated margin, hard 24h time stop. CoinGecko is fetched through a proxy so the browser is not blocked by CORS.
 </p>
 <script>
-const CG = "https://api.coingecko.com/api/v3";
+const CG_PROXY = "https://aramt.com/alphax-scanner/api.php";
 const MAJORS = new Set(["btc","eth","sol","xrp","bnb","doge","ada","trx","avax","link","sui","hbar","uni","aave","dot","ltc","bch","near","atom","apt","ton","pepe","shib","wld","hype"]);
 const TRADFI_HINT = /^(xau|xag|uso|nas100|spx500|aapl|tsla|amzn|nvda|msft|meta|googl|nflx|intc|qcom|regn|biib|naver|hanmi|arkk|mRNA|gold|silver|oil|wti)/i;
 
@@ -193,9 +193,24 @@ const fmtPct = (n) => n == null || !isFinite(n) ? "—" : (n >= 0 ? "+" : "") + 
 const fmtNum = (n, d=2) => n == null || !isFinite(n) ? "—" : n.toFixed(d);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+function cgUrl(path, params) {
+  const u = new URL(CG_PROXY);
+  u.searchParams.set("path", path);
+  const entries = params instanceof URLSearchParams
+    ? params.entries()
+    : Object.entries(params || {});
+  for (const [k, v] of entries) u.searchParams.set(k, v);
+  return u.toString();
+}
+
 async function getJson(url) {
   for (let i = 0; i < 5; i++) {
-    const res = await fetch(url);
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (err) {
+      throw new Error("Network/CORS error talking to the data proxy. " + (err && err.message ? err.message : String(err)));
+    }
     if (res.status === 429) {
       $("status").textContent = "Rate limited. Waiting " + (6*(i+1)) + "s…";
       await sleep(6000 * (i+1));
@@ -211,7 +226,7 @@ async function scan() {
   $("scanBtn").disabled = true;
   $("status").textContent = "Loading AlphaX perp book…";
   try {
-    const ax = await getJson(CG + "/derivatives/exchanges/alphax-futures?include_tickers=unexpired");
+    const ax = await getJson(cgUrl("derivatives/exchanges/alphax-futures", { include_tickers: "unexpired" }));
     const tickers = (ax.tickers || []).filter(t => (t.target || "").toUpperCase() === "USDT");
     $("status").textContent = `Loaded ${tickers.length} AlphaX perps. Fetching spot caps…`;
 
@@ -227,7 +242,7 @@ async function scan() {
         per_page: "250",
         page: "1"
       });
-      const data = await getJson(CG + "/coins/markets?" + q.toString());
+      const data = await getJson(cgUrl("coins/markets", q));
       markets.push(...data);
       await sleep(1200);
     }
