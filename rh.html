@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RH Chain Trenches</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #141b24;
+    --line: #243041;
+    --text: #e8eef6;
+    --muted: #8b9bb0;
+    --accent: #3ee0b2;
+    --warn: #ffb020;
+    --down: #ff5d6c;
+    --up: #3ee0b2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, #173326 0%, transparent 50%), var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 28px 24px 12px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.03em; }
+  .sub { color: var(--muted); max-width: 860px; line-height: 1.45; }
+  .nav { display: flex; gap: 8px; margin: 0 0 14px; }
+  .nav a {
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .nav a.on { color: #062018; background: var(--accent); border-color: transparent; }
+  .controls {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 16px 24px 8px;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+  }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+  input, select, button {
+    width: 100%;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font: inherit;
+  }
+  button {
+    background: var(--accent);
+    color: #062018;
+    font-weight: 700;
+    cursor: pointer;
+    border: 0;
+    margin-top: 18px;
+  }
+  button.secondary { background: #223044; color: var(--text); }
+  .status {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 4px 24px 12px;
+    color: var(--muted);
+    min-height: 28px;
+  }
+  .table-wrap {
+    max-width: 1280px;
+    margin: 0 auto 40px;
+    padding: 0 24px;
+    overflow-x: auto;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; cursor: pointer; }
+  td.name, th.name { text-align: left; }
+  a { color: var(--accent); text-decoration: none; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: #203027;
+    color: var(--accent);
+  }
+  .addr { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .note { max-width: 1280px; margin: 0 auto 32px; padding: 0 24px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<header>
+  <nav class="nav">
+    <a href="./">AlphaX perps</a>
+    <a class="on" href="./rh.html">RH trenches</a>
+  </nav>
+  <h1>RH Chain Trenches</h1>
+  <p class="sub">
+    Early Robinhood Chain tokens as they show up for Robinhood Wallet (chain 4663) — not the brokerage app.
+    Rank by volume / liquidity (same idea as turnover) on very new names. Play money. Most of these die.
+  </p>
+</header>
+
+<div class="controls">
+  <div>
+    <label>Max age</label>
+    <select id="maxAge">
+      <option value="15">15 minutes</option>
+      <option value="60">1 hour</option>
+      <option value="360" selected>6 hours</option>
+      <option value="1440">24 hours</option>
+      <option value="4320">3 days</option>
+    </select>
+  </div>
+  <div>
+    <label>Max FDV ($k)</label>
+    <input id="maxFdv" type="number" value="1500" min="1" />
+  </div>
+  <div>
+    <label>Min volume 24h ($)</label>
+    <input id="minVol" type="number" value="3000" min="0" />
+  </div>
+  <div>
+    <label>Min liquidity ($)</label>
+    <input id="minLiq" type="number" value="1500" min="0" />
+  </div>
+  <div>
+    <label>Min txns 1h</label>
+    <input id="minTx" type="number" value="15" min="0" />
+  </div>
+  <div>
+    <button id="scanBtn">Scan now</button>
+  </div>
+</div>
+<div class="controls" style="grid-template-columns: 2fr 1fr 1fr 1fr;">
+  <div>
+    <label>Search ticker</label>
+    <input id="q" placeholder="PEZ, Ponsan, CASHCAT…" />
+  </div>
+  <div>
+    <label>Hide majors / stables</label>
+    <select id="hideMajors">
+      <option value="yes" selected>Yes</option>
+      <option value="no">No</option>
+    </select>
+  </div>
+  <div>
+    <label>Sort</label>
+    <select id="sort">
+      <option value="turnover">Vol / liq</option>
+      <option value="vol1h">1h volume</option>
+      <option value="vol5m">5m volume</option>
+      <option value="vol24">24h volume</option>
+      <option value="chg1h">|1h move|</option>
+      <option value="chg5m">|5m move|</option>
+      <option value="tx1h">1h txns</option>
+      <option value="age">Newest</option>
+      <option value="fdv">FDV</option>
+    </select>
+  </div>
+  <div>
+    <button class="secondary" id="csvBtn">Export CSV</button>
+  </div>
+</div>
+<div class="status" id="status">Idle. Click Scan now. Looks at tokens created inside the age window on Robinhood Chain.</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th class="name">Token</th>
+        <th>Age</th>
+        <th>FDV</th>
+        <th>Liq</th>
+        <th>Vol 24h</th>
+        <th>Vol 1h</th>
+        <th>Vol/liq</th>
+        <th>1h tx</th>
+        <th>Buy%</th>
+        <th>5m</th>
+        <th>1h</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+<p class="note">
+  Data is DexPaprika pool/token stats for Robinhood Chain, proxied so the browser is not blocked.
+  Vol/liq is 24h volume divided by current liquidity — high with tiny liq is often a wash or an empty book.
+  Hide majors drops WETH, ETH, USDG, and PONS. Isolated size. This is not a signal service.
+</p>
+<script>
+const PROXY = "https://aramt.com/alphax-scanner/api.php";
+const MAJORS = new Set([
+  "0x0000000000000000000000000000000000000000",
+  "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+  "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+  "0x39dbed3a2bd333467115de45665cc57f813c4571"
+]);
+const MAJOR_TICKERS = new Set(["weth", "eth", "usdg", "usdc", "usdt", "pons"]);
+
+let rows = [];
+
+const $ = (id) => document.getElementById(id);
+const fmtUsd = (n) => {
+  if (n == null || !isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return "$" + (n/1e9).toFixed(2) + "B";
+  if (abs >= 1e6) return "$" + (n/1e6).toFixed(2) + "M";
+  if (abs >= 1e3) return "$" + (n/1e3).toFixed(0) + "k";
+  return "$" + n.toFixed(0);
+};
+const fmtPct = (n) => n == null || !isFinite(n) ? "—" : (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
+const fmtNum = (n, d=2) => n == null || !isFinite(n) ? "—" : n.toFixed(d);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const shortAddr = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "";
+
+function ageLabel(iso) {
+  if (!iso) return "—";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!isFinite(ms) || ms < 0) return "—";
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return m + "m";
+  const h = Math.floor(m / 60);
+  if (h < 48) return h + "h";
+  return Math.floor(h / 24) + "d";
+}
+
+function windowChange(w, fallback) {
+  if (w && w.last_price_usd_change != null && isFinite(w.last_price_usd_change)) return w.last_price_usd_change;
+  return fallback;
+}
+
+function buyPct(w) {
+  if (!w) return null;
+  const buys = Number(w.buys) || 0;
+  const sells = Number(w.sells) || 0;
+  const tot = buys + sells;
+  return tot ? (100 * buys / tot) : null;
+}
+
+function dpUrl(params) {
+  const u = new URL(PROXY);
+  u.searchParams.set("src", "dp");
+  u.searchParams.set("path", "networks/robinhood/tokens/search");
+  Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+  return u.toString();
+}
+
+async function getJson(url) {
+  for (let i = 0; i < 5; i++) {
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (err) {
+      throw new Error("Network/CORS error talking to the data proxy. " + (err && err.message ? err.message : String(err)));
+    }
+    if (res.status === 429) {
+      const wait = 15 * (i + 1);
+      $("status").textContent = "Rate limit. Waiting " + wait + "s…";
+      await sleep(wait * 1000);
+      continue;
+    }
+    if (!res.ok) throw new Error(res.status + " " + url);
+    return res.json();
+  }
+  throw new Error("Upstream kept rate-limiting. Try again in a minute.");
+}
+
+async function scan() {
+  $("scanBtn").disabled = true;
+  $("status").textContent = "Loading new Robinhood Chain tokens…";
+  try {
+    const ageMin = Number($("maxAge").value);
+    const createdAfter = Math.floor(Date.now() / 1000) - ageMin * 60;
+    const minVol = Number($("minVol").value);
+    const data = await getJson(dpUrl({
+      created_after: String(createdAfter),
+      order_by: "volume_usd_24h",
+      sort: "desc",
+      limit: "100",
+      detailed: "true",
+      volume_usd_24h_min: String(Math.max(0, minVol))
+    }));
+    const list = data.results || [];
+    rows = list.map(t => {
+      const addr = (t.address || "").toLowerCase();
+      const w5 = t["5m"] || {};
+      const w1 = t["1h"] || {};
+      const fdv = t.fdv_usd;
+      const liq = t.liquidity_usd;
+      const vol24 = t.volume_usd_24h;
+      return {
+        address: addr,
+        symbol: t.symbol || "",
+        name: t.name || "",
+        createdAt: t.created_at,
+        ageMin: t.created_at ? (Date.now() - new Date(t.created_at).getTime()) / 60000 : null,
+        price: t.price_usd,
+        fdv,
+        liq,
+        vol24,
+        vol1h: w1.volume_usd,
+        vol5m: w5.volume_usd,
+        turnover: liq > 0 ? vol24 / liq : null,
+        tx1h: w1.txns,
+        tx24: t.txns_24h,
+        buy1h: buyPct(w1),
+        chg5m: windowChange(w5, null),
+        chg1h: windowChange(w1, null),
+        chg24: t.price_change_percentage_24h,
+        ds: "https://dexscreener.com/robinhood/" + addr,
+        bs: "https://robinhoodchain.blockscout.com/token/" + addr
+      };
+    });
+    render();
+    $("status").textContent = `Ready. ${rows.length} tokens created in the last ${ageMin < 60 ? ageMin + "m" : (ageMin/60) + "h"}.`;
+  } catch (e) {
+    $("status").textContent = e.message || String(e);
+  } finally {
+    $("scanBtn").disabled = false;
+  }
+}
+
+function filtered() {
+  const maxFdv = Number($("maxFdv").value) * 1000;
+  const minVol = Number($("minVol").value);
+  const minLiq = Number($("minLiq").value);
+  const minTx = Number($("minTx").value);
+  const q = $("q").value.trim().toLowerCase();
+  const hide = $("hideMajors").value === "yes";
+  const sort = $("sort").value;
+  const ageMin = Number($("maxAge").value);
+
+  let out = rows.filter(r => {
+    if (q && !((r.symbol||"").toLowerCase().includes(q) || (r.name||"").toLowerCase().includes(q) || (r.address||"").includes(q))) return false;
+    if (hide && (MAJORS.has(r.address) || MAJOR_TICKERS.has((r.symbol||"").toLowerCase()))) return false;
+    if (r.ageMin != null && r.ageMin > ageMin) return false;
+    if (r.fdv != null && r.fdv > maxFdv) return false;
+    if (r.vol24 != null && r.vol24 < minVol) return false;
+    if (r.liq != null && r.liq < minLiq) return false;
+    if (r.tx1h != null && r.tx1h < minTx) return false;
+    return true;
+  });
+
+  const keyFn = {
+    turnover: r => r.turnover || -1,
+    vol1h: r => r.vol1h || -1,
+    vol5m: r => r.vol5m || -1,
+    vol24: r => r.vol24 || -1,
+    chg1h: r => Math.abs(r.chg1h || r.chg24 || 0),
+    chg5m: r => Math.abs(r.chg5m || 0),
+    tx1h: r => r.tx1h || -1,
+    age: r => -(r.ageMin || 0),
+    fdv: r => r.fdv || -1
+  }[sort];
+  out.sort((a,b) => keyFn(b) - keyFn(a));
+  return out;
+}
+
+function render() {
+  const list = filtered();
+  $("tbody").innerHTML = list.map(r => {
+    const chg5 = r.chg5m;
+    const chg1 = r.chg1h != null ? r.chg1h : r.chg24;
+    const turnBadge = r.turnover >= 20 ? `<span class="badge">${fmtNum(r.turnover,1)}x</span>` : fmtNum(r.turnover,1);
+    return `<tr>
+      <td class="name"><strong>${r.symbol || "—"}</strong><div class="addr">${r.name || ""} · ${shortAddr(r.address)}</div></td>
+      <td>${ageLabel(r.createdAt)}</td>
+      <td>${fmtUsd(r.fdv)}</td>
+      <td>${fmtUsd(r.liq)}</td>
+      <td>${fmtUsd(r.vol24)}</td>
+      <td>${fmtUsd(r.vol1h)}</td>
+      <td>${turnBadge}</td>
+      <td>${r.tx1h == null ? "—" : r.tx1h}</td>
+      <td>${r.buy1h == null ? "—" : r.buy1h.toFixed(0) + "%"}</td>
+      <td class="${(chg5||0)>=0?'up':'down'}">${fmtPct(chg5)}</td>
+      <td class="${(chg1||0)>=0?'up':'down'}">${fmtPct(chg1)}</td>
+      <td><a href="${r.ds}" target="_blank">DS</a> <a href="${r.bs}" target="_blank">Scan</a></td>
+    </tr>`;
+  }).join("");
+  if (!list.length && rows.length) $("status").textContent = "No rows match the current filters. Loosen FDV / vol / liq / age.";
+}
+
+function exportCsv() {
+  const list = filtered();
+  const headers = ["symbol","name","address","createdAt","fdv","liq","vol24","vol1h","vol5m","turnover","tx1h","buy1h","chg5m","chg1h","chg24","ds"];
+  const lines = [headers.join(",")].concat(list.map(r => headers.map(h => {
+    const v = r[h];
+    return typeof v === "string" ? `"${v.replaceAll('"','""')}"` : (v ?? "");
+  }).join(",")));
+  const blob = new Blob([lines.join("\n")], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "rh-trenches.csv";
+  a.click();
+}
+
+["maxAge","maxFdv","minVol","minLiq","minTx","q","hideMajors","sort"].forEach(id => {
+  $(id).addEventListener("input", render);
+  $(id).addEventListener("change", render);
+});
+$("scanBtn").addEventListener("click", scan);
+$("csvBtn").addEventListener("click", exportCsv);
+</script>
+</body>
+</html>

@@ -21,10 +21,64 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
     exit;
 }
 
-$allowedPaths = [
-    'derivatives/exchanges/alphax-futures' => true,
-    'coins/markets' => true,
-];
+$src = $_GET['src'] ?? 'gecko';
+if ($src === 'dp') {
+    $allowedPaths = [
+        'networks/robinhood/tokens/search' => true,
+        'networks/robinhood/pools/search' => true,
+    ];
+    $allowedParams = [
+        'created_after' => true,
+        'created_before' => true,
+        'order_by' => true,
+        'sort' => true,
+        'limit' => true,
+        'detailed' => true,
+        'cursor' => true,
+        'volume_usd_24h_min' => true,
+        'volume_usd_24h_max' => true,
+        'liquidity_usd_min' => true,
+        'liquidity_usd_max' => true,
+        'txns_24h_min' => true,
+        'txns_24h_max' => true,
+    ];
+    $upstreamBase = 'https://api.dexpaprika.com/';
+    $cacheTtl = 45;
+    $paceName = 'pace-dp';
+    $minGap = 6.5;
+    $extraHeaders = [];
+} else {
+    $src = 'gecko';
+    $allowedPaths = [
+        'derivatives/exchanges/alphax-futures' => true,
+        'coins/markets' => true,
+    ];
+    $allowedParams = [
+        'include_tickers' => true,
+        'vs_currency' => true,
+        'ids' => true,
+        'price_change_percentage' => true,
+        'per_page' => true,
+        'page' => true,
+    ];
+    $upstreamBase = 'https://api.coingecko.com/api/v3/';
+    $cacheTtl = 180;
+    $paceName = 'pace';
+    $config = [];
+    $configFile = __DIR__ . '/config.php';
+    if (is_file($configFile)) {
+        $loaded = require $configFile;
+        if (is_array($loaded)) {
+            $config = $loaded;
+        }
+    }
+    $demoKey = trim((string) ($config['coingecko_demo_key'] ?? ''));
+    $minGap = $demoKey !== '' ? 2.2 : 4.0;
+    $extraHeaders = [];
+    if ($demoKey !== '') {
+        $extraHeaders[] = 'x-cg-demo-api-key: ' . $demoKey;
+    }
+}
 
 $path = $_GET['path'] ?? '';
 if (!is_string($path) || !isset($allowedPaths[$path])) {
@@ -34,18 +88,9 @@ if (!is_string($path) || !isset($allowedPaths[$path])) {
     exit;
 }
 
-$allowedParams = [
-    'include_tickers' => true,
-    'vs_currency' => true,
-    'ids' => true,
-    'price_change_percentage' => true,
-    'per_page' => true,
-    'page' => true,
-];
-
 $query = [];
 foreach ($_GET as $key => $value) {
-    if ($key === 'path' || !isset($allowedParams[$key]) || !is_string($value)) {
+    if ($key === 'path' || $key === 'src' || !isset($allowedParams[$key]) || !is_string($value)) {
         continue;
     }
     $query[$key] = $value;
@@ -56,8 +101,7 @@ if (!is_dir($cacheDir)) {
     mkdir($cacheDir, 0755, true);
 }
 
-$cacheTtl = 180;
-$cacheKey = hash('sha256', $path . '?' . http_build_query($query));
+$cacheKey = hash('sha256', $src . '|' . $path . '?' . http_build_query($query));
 $cacheFile = $cacheDir . '/' . $cacheKey . '.json';
 
 if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTtl) {
@@ -68,30 +112,17 @@ if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTtl) {
     exit;
 }
 
-$config = [];
-$configFile = __DIR__ . '/config.php';
-if (is_file($configFile)) {
-    $loaded = require $configFile;
-    if (is_array($loaded)) {
-        $config = $loaded;
-    }
-}
-$demoKey = trim((string) ($config['coingecko_demo_key'] ?? ''));
-
-$url = 'https://api.coingecko.com/api/v3/' . $path;
+$url = $upstreamBase . $path;
 if ($query) {
     $url .= '?' . http_build_query($query);
 }
 
-$headers = [
+$headers = array_merge([
     'Accept: application/json',
     'User-Agent: AlphaX-Turnover-Scanner/1.0',
-];
-if ($demoKey !== '') {
-    $headers[] = 'x-cg-demo-api-key: ' . $demoKey;
-}
+], $extraHeaders);
 
-$paceFile = $cacheDir . '/pace';
+$paceFile = $cacheDir . '/' . $paceName;
 $pace = fopen($paceFile, 'c+');
 if ($pace === false) {
     http_response_code(500);
@@ -102,7 +133,6 @@ if ($pace === false) {
 flock($pace, LOCK_EX);
 rewind($pace);
 $last = (float) stream_get_contents($pace);
-$minGap = $demoKey !== '' ? 2.2 : 4.0;
 $wait = $minGap - (microtime(true) - $last);
 if ($wait > 0) {
     usleep((int) round($wait * 1_000_000));

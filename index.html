@@ -86,10 +86,23 @@
     color: var(--accent);
   }
   .note { max-width: 1280px; margin: 0 auto 32px; padding: 0 24px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .nav { display: flex; gap: 8px; margin: 0 0 14px; }
+  .nav a {
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .nav a.on { color: #062018; background: var(--accent); border-color: transparent; }
 </style>
 </head>
 <body>
 <header>
+  <nav class="nav">
+    <a class="on" href="./">AlphaX perps</a>
+    <a href="./rh.html">RH trenches</a>
+  </nav>
   <h1>AlphaX Turnover Scanner</h1>
   <p class="sub">
     Live screen of AlphaX USDT perps joined to CoinGecko spot market cap.
