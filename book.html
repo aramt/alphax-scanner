@@ -78,7 +78,7 @@
   th, td { padding: 7px 6px; border-bottom: 1px solid var(--line); text-align: right; }
   th.name, td.name { text-align: left; }
   th { color: var(--muted); font-weight: 600; }
-  .form-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 10px; align-items: end; }
+  .form-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-top: 10px; align-items: end; }
   .note { max-width: 1280px; margin: 0 auto 32px; padding: 0 24px; color: var(--muted); font-size: 12px; line-height: 1.5; }
   .empty { color: var(--muted); padding: 40px 8px; text-align: center; }
   @media (max-width: 900px) {
@@ -120,24 +120,34 @@
   <button class="secondary" id="refreshBtn">Refresh markets</button>
   <button class="secondary" id="exportBtn">Backup</button>
 </div>
-<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr auto; padding-top: 0;">
-  <div>
-    <label>Qty (blank = watch only)</label>
-    <input id="newQty" type="number" step="any" placeholder="0" />
-  </div>
+<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto; padding-top: 0;">
   <div>
     <label>Entry price</label>
-    <input id="newPx" type="number" step="any" placeholder="optional" />
+    <input id="newPx" type="number" step="any" placeholder="0.25" />
   </div>
   <div>
-    <label>Initial margin $</label>
-    <input id="newMargin" type="number" step="any" placeholder="auto = notional / lev" />
+    <label>USD I put in</label>
+    <input id="newUsd" type="number" step="any" placeholder="2000" />
+  </div>
+  <div>
+    <label>That USD is</label>
+    <select id="newUsdKind">
+      <option value="margin" selected>Margin I deposited</option>
+      <option value="notional">Position size (notional)</option>
+    </select>
+  </div>
+  <div>
+    <label>Qty override (coins)</label>
+    <input id="newQty" type="number" step="any" placeholder="leave blank to auto" />
   </div>
   <div>
     <label>Note</label>
     <input id="newNote" placeholder="open, venue…" />
   </div>
   <button id="addBtn">Add coin</button>
+</div>
+<div class="toolbar" style="grid-template-columns: 1fr; padding-top: 0;">
+  <div class="status" id="newHint" style="padding: 0;">Leave qty blank: $2,000 margin at 2x at $0.25 → 16,000 coins, $4,000 notional.</div>
 </div>
 <div class="toolbar" style="grid-template-columns: 2fr auto auto auto; padding-top: 0;">
   <div>
@@ -194,6 +204,31 @@ const fmtPx = (n) => {
 };
 const fmtPct = (n) => n == null || !isFinite(n) ? "—" : (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
 const clsPnL = (n) => n > 0 ? "up" : n < 0 ? "down" : "";
+
+function sizeFromInputs({ qty, price, usd, lev, kind }) {
+  const qIn = Number(qty);
+  const p = Number(price);
+  const u = Number(usd);
+  const L = Number(lev) || 2;
+  if (qIn > 0 && p > 0) {
+    const margin = u > 0 && kind === "margin" ? u : (qIn * p) / L;
+    return { qty: qIn, price: p, margin, notional: qIn * p, lev: L };
+  }
+  if (u > 0 && p > 0) {
+    if (kind === "notional") {
+      const qty = u / p;
+      return { qty, price: p, margin: u / L, notional: u, lev: L };
+    }
+    const qty = (u * L) / p;
+    return { qty, price: p, margin: u, notional: u * L, lev: L };
+  }
+  return null;
+}
+function fmtCoins(n) {
+  if (n == null || !isFinite(n)) return "—";
+  if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return String(Number(n.toPrecision(6)));
+}
 
 function emptyBook() {
   return { stables: 0, positions: [], updated_at: 0 };
@@ -525,9 +560,15 @@ function render() {
         <button class="tiny danger" data-act="remove">Remove coin</button>
       </div>
       <div class="form-row" data-form hidden>
-        <div><label>Qty</label><input data-f="qty" type="number" step="any" /></div>
+        <div><label>Qty (coins)</label><input data-f="qty" type="number" step="any" placeholder="blank = from USD" /></div>
         <div><label>Price</label><input data-f="price" type="number" step="any" /></div>
-        <div><label>USD (margin)</label><input data-f="usd" type="number" step="any" /></div>
+        <div><label>USD</label><input data-f="usd" type="number" step="any" /></div>
+        <div><label>USD is</label>
+          <select data-f="usdKind">
+            <option value="margin">Margin deposited</option>
+            <option value="notional" selected>Position notional</option>
+          </select>
+        </div>
         <div><label>Note</label><input data-f="note" placeholder="optional" /></div>
         <button class="tiny" data-act="commit">Save fill</button>
       </div>
@@ -563,18 +604,34 @@ function promptFill(pos, type, preset) {
   form.querySelector('[data-f="qty"]').value = preset?.qty ?? "";
   form.querySelector('[data-f="usd"]').value = preset?.usd ?? "";
   form.querySelector('[data-f="note"]').value = "";
-  form.querySelector('[data-f="qty"]').parentElement.style.display = type.startsWith("margin") ? "none" : "";
-  form.querySelector('[data-f="price"]').parentElement.style.display = type.startsWith("margin") ? "none" : "";
-  form.querySelector('[data-f="usd"]').parentElement.style.display = type.startsWith("margin") ? "" : "none";
+  const isMargin = type.startsWith("margin");
+  form.querySelector('[data-f="qty"]').parentElement.style.display = isMargin ? "none" : "";
+  form.querySelector('[data-f="price"]').parentElement.style.display = isMargin ? "none" : "";
+  form.querySelector('[data-f="usd"]').parentElement.style.display = "";
+  form.querySelector('[data-f="usdKind"]').parentElement.style.display = isMargin ? "none" : "";
 }
 
 function commitFill(pos, type, fields) {
   const ev = { id: uid(), type, ts: Date.now(), note: fields.note || "" };
   if (type === "buy" || type === "sell") {
-    ev.qty = Number(fields.qty);
-    ev.price = Number(fields.price);
-    if (!(ev.qty > 0) || !(ev.price > 0)) return alert("Qty and price required.");
+    const sized = sizeFromInputs({
+      qty: fields.qty,
+      price: fields.price,
+      usd: fields.usd,
+      lev: pos.leverage,
+      kind: fields.usdKind || "notional"
+    });
+    if (!sized) return alert("Need price plus either coin qty or USD.");
+    ev.qty = sized.qty;
+    ev.price = sized.price;
     if (type === "sell" && ev.qty > fold(pos.events).qty + 1e-9) return alert("Sell qty > position.");
+    if (type === "buy" && fields.usdKind === "margin" && sized.margin > 0) {
+      pos.events.push(ev);
+      pos.events.push({ id: uid(), type: "margin_in", ts: Date.now(), usd: sized.margin, note: "margin with add" });
+      save(state);
+      render();
+      return;
+    }
   } else {
     ev.usd = Number(fields.usd);
     if (!(ev.usd > 0)) return alert("USD amount required.");
@@ -591,27 +648,49 @@ $("stables").addEventListener("change", () => {
   save(state);
 });
 
+function updateNewHint() {
+  const sized = sizeFromInputs({
+    qty: $("newQty").value,
+    price: $("newPx").value,
+    usd: $("newUsd").value,
+    lev: $("newLev").value,
+    kind: $("newUsdKind").value
+  });
+  if (!sized) {
+    $("newHint").textContent = "Leave qty blank: $2,000 margin at 2x at $0.25 → 16,000 coins, $4,000 notional.";
+    return;
+  }
+  $("newHint").textContent = `→ ${fmtCoins(sized.qty)} coins · ${fmtUsd(sized.notional, 0)} notional · ${fmtUsd(sized.margin, 0)} margin · ${sized.lev}x`;
+}
+["newQty","newPx","newUsd","newLev","newUsdKind"].forEach(id => {
+  $(id).addEventListener("input", updateNewHint);
+  $(id).addEventListener("change", updateNewHint);
+});
+
 $("addBtn").addEventListener("click", () => {
   const geckoId = ($("customId").value.trim() || $("preset").value).toLowerCase();
   const preset = PRESETS.find(([,id]) => id === geckoId);
   const symbol = (preset ? preset[0] : geckoId.split("-")[0]).toUpperCase();
   if (!geckoId) return alert("Pick a preset or CoinGecko id.");
   if (state.positions.some(p => p.geckoId === geckoId)) return alert("Already in the book.");
-  const qty = Number($("newQty").value) || 0;
-  const price = Number($("newPx").value) || 0;
   const lev = Number($("newLev").value) || 2;
   const note = $("newNote").value.trim() || "open";
-  if (qty > 0 && !(price > 0)) return alert("Entry price required when qty is set.");
-  let margin = Number($("newMargin").value);
-  if (!(margin > 0) && qty > 0) margin = (qty * price) / lev;
+  const sized = sizeFromInputs({
+    qty: $("newQty").value,
+    price: $("newPx").value,
+    usd: $("newUsd").value,
+    lev,
+    kind: $("newUsdKind").value
+  });
   const pos = { id: uid(), symbol, geckoId, leverage: lev, events: [] };
-  if (qty > 0) {
-    pos.events.push({ id: uid(), type: "buy", ts: Date.now(), qty, price, note });
-    if (margin > 0) pos.events.push({ id: uid(), type: "margin_in", ts: Date.now(), usd: margin, note: "initial margin" });
+  if (sized) {
+    pos.events.push({ id: uid(), type: "buy", ts: Date.now(), qty: sized.qty, price: sized.price, note });
+    if (sized.margin > 0) pos.events.push({ id: uid(), type: "margin_in", ts: Date.now(), usd: sized.margin, note: "initial margin" });
   }
   state.positions.push(pos);
   save(state);
-  $("newQty").value = ""; $("newPx").value = ""; $("newMargin").value = ""; $("newNote").value = "";
+  $("newQty").value = ""; $("newPx").value = ""; $("newUsd").value = ""; $("newNote").value = "";
+  updateNewHint();
   render();
   refreshOne(pos);
 });
