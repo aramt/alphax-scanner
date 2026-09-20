@@ -412,27 +412,27 @@ function structure(bars, left, right) {
   const hl = lastL && prevL && lastL.px > prevL.px;
   const lh = lastH && prevH && lastH.px < prevH.px;
   const ll = lastL && prevL && lastL.px < prevL.px;
+  const tookHigh = lastH && close > lastH.px;
+  const lostLow = lastL && close < lastL.px;
   let state = "MIXED";
-  if (hh && hl) state = "UP";
+  if (lostLow) state = "BROKEN";
+  else if (tookHigh || (hh && hl)) state = "UP";
   else if (lh && ll) state = "DOWN";
-  const broke = lastL && close < lastL.px && (ll || state === "DOWN");
-  if (broke) state = "BROKEN";
-  const impulseLow = lastL;
-  const impulseHigh = lastH;
+  const liveHigh = Math.max(close, ...bars.slice(-26).map(b => b.h));
   let fib = null;
-  if (impulseLow && impulseHigh && impulseHigh.t > impulseLow.t) {
-    const range = impulseHigh.px - impulseLow.px;
+  if (lastL && liveHigh > lastL.px) {
+    const range = liveHigh - lastL.px;
     fib = {
-      high: impulseHigh.px,
-      low: impulseLow.px,
-      r382: impulseHigh.px - range * 0.382,
-      r50: impulseHigh.px - range * 0.5,
-      r618: impulseHigh.px - range * 0.618,
-      e127: impulseLow.px + range * 1.272,
-      e162: impulseLow.px + range * 1.618
+      high: liveHigh,
+      low: lastL.px,
+      r382: liveHigh - range * 0.382,
+      r50: liveHigh - range * 0.5,
+      r618: liveHigh - range * 0.618,
+      e127: lastL.px + range * 1.272,
+      e162: lastL.px + range * 1.618
     };
   }
-  return { state, lastH, lastL, prevH, prevL, close, fib, broke };
+  return { state, lastH, lastL, prevH, prevL, close, fib, broke: !!lostLow, tookHigh };
 }
 
 function daysSince(t) {
@@ -451,11 +451,9 @@ function regimeFromOhlc(dailyRaw, fourHour) {
   const weekly = toWeekly(fromCloses.length ? fromCloses : daily);
   const w = structure(weekly, 1, 1);
   const d = structure(daily, 2, 2);
-  let weeklyState = w.state;
-  if (weeklyState === "BROKEN") weeklyState = "BROKEN";
-  else if (weeklyState === "UP") weeklyState = "UP";
-  else if (weeklyState === "DOWN") weeklyState = "BROKEN";
-  else weeklyState = "WEAK";
+  let weeklyState = "WEAK";
+  if (w.state === "BROKEN") weeklyState = "BROKEN";
+  else if (w.state === "UP") weeklyState = "UP";
 
   let dailyState = d.state;
   let correctionDays = 0;
