@@ -139,20 +139,30 @@
   </div>
   <button id="addBtn">Add coin</button>
 </div>
-<div class="toolbar" style="grid-template-columns: 1fr auto auto; padding-top: 0;">
-  <div class="status" id="status" style="padding: 8px 0;">Idle. Add a coin, then log the fill. Markets load from CoinGecko.</div>
+<div class="toolbar" style="grid-template-columns: 2fr auto auto auto; padding-top: 0;">
+  <div>
+    <label>Sync phrase (same on phone + laptop)</label>
+    <input id="syncPhrase" type="password" placeholder="pick a long phrase you will remember" autocomplete="off" />
+  </div>
+  <button id="syncBtn">Unlock / sync</button>
   <button class="secondary tiny" id="importBtn">Import backup</button>
   <input id="importFile" type="file" accept="application/json" hidden />
+</div>
+<div class="toolbar" style="grid-template-columns: 1fr; padding-top: 0;">
+  <div class="status" id="status" style="padding: 8px 0;">Set a sync phrase so the book survives closing the browser and works on your phone.</div>
 </div>
 <div class="wrap" id="cards"></div>
 <p class="note">
   Average entry is the live bag: sells lock realized PnL and leave remaining coins at the old average; buys blend a new average.
   Extra margin does not change entry — it lowers effective leverage and moves estimated liquidation down.
-  Data lives in this browser only. Export a backup if you care about it. Not a broker, not a signal.
+  Sync phrase stores the book on aramt.com (not in the URL, not in git). Same phrase on your phone loads the same book.
+  Export is still a local backup. Last save wins if two devices edit at once. Not a broker, not a signal.
 </p>
 <script>
 const PROXY = "https://aramt.com/alphax-scanner/api.php";
+const BOOK_API = "https://aramt.com/alphax-scanner/book-store.php";
 const STORE = "htf-book-v1";
+const SYNC_STORE = "htf-book-sync-hash";
 const PRESETS = [
   ["HYPE","hyperliquid"],["RENDER","render-token"],["ENA","ethena"],
   ["BTC","bitcoin"],["ETH","ethereum"],["SOL","solana"],["TAO","bittensor"],
@@ -184,17 +194,85 @@ const fmtPx = (n) => {
 const fmtPct = (n) => n == null || !isFinite(n) ? "—" : (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
 const clsPnL = (n) => n > 0 ? "up" : n < 0 ? "down" : "";
 
+function emptyBook() {
+  return { stables: 0, positions: [], updated_at: 0 };
+}
 function load() {
-  try { return JSON.parse(localStorage.getItem(STORE)) || { stables: 0, positions: [] }; }
-  catch { return { stables: 0, positions: [] }; }
+  try { return JSON.parse(localStorage.getItem(STORE)) || emptyBook(); }
+  catch { return emptyBook(); }
 }
 function save(state) {
+  state.updated_at = Date.now();
   localStorage.setItem(STORE, JSON.stringify(state));
+  queuePush();
 }
 
 let state = load();
 let marks = {};
 let regimes = {};
+let syncKey = localStorage.getItem(SYNC_STORE) || "";
+let pushTimer = null;
+
+async function hashPhrase(phrase) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("htf-book|" + phrase.trim()));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function queuePush() {
+  if (!syncKey) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushBook, 400);
+}
+async function pushBook() {
+  if (!syncKey) return;
+  try {
+    const res = await fetch(BOOK_API + "?k=" + encodeURIComponent(syncKey), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state)
+    });
+    if (!res.ok) throw new Error("sync save " + res.status);
+    const bits = $("status").textContent || "";
+    if (!/updated|Loading|Regime|Idle|Imported/.test(bits)) {
+      $("status").textContent = "Saved to server.";
+    }
+  } catch (err) {
+    $("status").textContent = "Sync save failed: " + (err.message || err);
+  }
+}
+async function pullBook() {
+  const res = await fetch(BOOK_API + "?k=" + encodeURIComponent(syncKey));
+  if (!res.ok) throw new Error("sync load " + res.status);
+  return res.json();
+}
+function countEvents(book) {
+  return (book.positions || []).reduce((n, p) => n + ((p.events || []).length), 0);
+}
+async function bootSync() {
+  if (!syncKey) {
+    $("status").textContent = "Local only until you set a sync phrase. Same phrase on your phone restores this book.";
+    return;
+  }
+  try {
+    const remote = await pullBook();
+    const remoteAt = Number(remote.updated_at) || 0;
+    const localAt = Number(state.updated_at) || 0;
+    const remoteN = countEvents(remote);
+    const localN = countEvents(state);
+    if (remoteN && (remoteAt > localAt || localN === 0)) {
+      state = remote;
+      localStorage.setItem(STORE, JSON.stringify(state));
+      $("status").textContent = "Loaded book from server.";
+    } else if (localN && (!remoteN || localAt >= remoteAt)) {
+      await pushBook();
+      $("status").textContent = remoteN ? "Synced. Using newest copy." : "Uploaded this browser's book to the server.";
+    } else {
+      $("status").textContent = "Synced. Empty book.";
+    }
+    render();
+  } catch (err) {
+    $("status").textContent = "Could not reach sync store: " + (err.message || err);
+  }
+}
 
 function cgUrl(path, params) {
   const u = new URL(PROXY);
@@ -629,9 +707,23 @@ async function refreshAll() {
   }
 }
 
+$("syncBtn").addEventListener("click", async () => {
+  const phrase = $("syncPhrase").value.trim();
+  if (phrase.length < 8) return alert("Use at least 8 characters. This is the only way to open the book on another device.");
+  syncKey = await hashPhrase(phrase);
+  localStorage.setItem(SYNC_STORE, syncKey);
+  $("syncPhrase").value = "";
+  $("syncPhrase").placeholder = "unlocked on this device";
+  await bootSync();
+  if (state.positions.length) refreshAll();
+});
+
 $("refreshBtn").addEventListener("click", refreshAll);
 render();
-if (state.positions.length) refreshAll();
+bootSync().then(() => {
+  if (syncKey) $("syncPhrase").placeholder = "unlocked on this device";
+  if (state.positions.length) refreshAll();
+});
 </script>
 </body>
 </html>

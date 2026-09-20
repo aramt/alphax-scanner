@@ -1,3 +1,5 @@
 config.php
 cache/*.json
 cache/pace
+cache/pace-dp
+data/books/*.json
