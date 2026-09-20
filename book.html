@@ -241,26 +241,33 @@ function fold(events) {
   return { qty, avg, realized, margin };
 }
 
-function toWeekly(daily) {
-  const weeks = [];
+function bucketBars(bars, keyFn) {
+  const out = [];
   const map = new Map();
-  for (const b of daily) {
-    const d = new Date(b.t);
-    const day = d.getUTCDay();
-    const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((day + 6) % 7)));
-    const key = monday.toISOString().slice(0,10);
+  for (const b of bars) {
+    const key = keyFn(b.t);
     let w = map.get(key);
     if (!w) {
-      w = { t: monday.getTime(), o: b.o, h: b.h, l: b.l, c: b.c };
+      w = { t: b.t, o: b.o, h: b.h, l: b.l, c: b.c };
       map.set(key, w);
-      weeks.push(w);
+      out.push(w);
     } else {
       w.h = Math.max(w.h, b.h);
       w.l = Math.min(w.l, b.l);
       w.c = b.c;
     }
   }
-  return weeks;
+  return out;
+}
+function toDaily(bars) {
+  return bucketBars(bars, t => new Date(t).toISOString().slice(0,10));
+}
+function toWeekly(daily) {
+  return bucketBars(daily, t => {
+    const d = new Date(t);
+    const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7)));
+    return monday.toISOString().slice(0,10);
+  });
 }
 
 function swings(bars, left, right) {
@@ -317,9 +324,16 @@ function daysSince(t) {
   return Math.max(0, Math.round((Date.now() - t) / 86400000));
 }
 
-function regimeFromOhlc(ohlc) {
-  const daily = (ohlc || []).map(x => ({ t: x[0], o: x[1], h: x[2], l: x[3], c: x[4] }));
-  const weekly = toWeekly(daily);
+function regimeFromOhlc(dailyRaw, fourHour) {
+  const fromCloses = (dailyRaw || []).map(x => {
+    const t = x[0], c = x[1];
+    return { t, o: c, h: c, l: c, c };
+  });
+  const from4h = toDaily((fourHour || []).map(x => ({ t: x[0], o: x[1], h: x[2], l: x[3], c: x[4] })));
+  const byDay = new Map(fromCloses.map(b => [new Date(b.t).toISOString().slice(0,10), b]));
+  from4h.forEach(b => byDay.set(new Date(b.t).toISOString().slice(0,10), b));
+  const daily = [...byDay.values()].sort((a,b) => a.t - b.t);
+  const weekly = toWeekly(fromCloses.length ? fromCloses : daily);
   const w = structure(weekly, 1, 1);
   const d = structure(daily, 2, 2);
   let weeklyState = w.state;
@@ -567,6 +581,18 @@ $("importFile").addEventListener("change", async (e) => {
   $("status").textContent = "Imported " + state.positions.length + " coins.";
 });
 
+async function loadRegime(pos) {
+  const chart = await getJson(cgUrl("coins/" + pos.geckoId + "/market_chart", {
+    vs_currency: "usd", days: "365", interval: "daily"
+  }));
+  const ohlc = await getJson(cgUrl("coins/" + pos.geckoId + "/ohlc", {
+    vs_currency: "usd", days: "30"
+  }));
+  const prices = Array.isArray(chart?.prices) ? chart.prices : [];
+  const fourH = Array.isArray(ohlc) ? ohlc : [];
+  regimes[pos.geckoId] = regimeFromOhlc(prices, fourH);
+}
+
 async function refreshOne(pos) {
   $("status").textContent = "Loading " + pos.symbol + "…";
   const price = await getJson(cgUrl("simple/price", {
@@ -574,9 +600,9 @@ async function refreshOne(pos) {
   }));
   const row = price[pos.geckoId];
   if (row) marks[pos.geckoId] = row;
-  const ohlc = await getJson(cgUrl("coins/" + pos.geckoId + "/ohlc", { vs_currency: "usd", days: "365" }));
-  if (Array.isArray(ohlc)) regimes[pos.geckoId] = regimeFromOhlc(ohlc);
+  await loadRegime(pos);
   render();
+  $("status").textContent = pos.symbol + " updated.";
 }
 
 async function refreshAll() {
@@ -591,9 +617,8 @@ async function refreshAll() {
     ids.forEach(id => { if (price[id]) marks[id] = price[id]; });
     for (let i = 0; i < state.positions.length; i++) {
       const pos = state.positions[i];
-      $("status").textContent = `OHLC ${i+1} / ${state.positions.length} · ${pos.symbol}`;
-      const ohlc = await getJson(cgUrl("coins/" + pos.geckoId + "/ohlc", { vs_currency: "usd", days: "365" }));
-      if (Array.isArray(ohlc)) regimes[pos.geckoId] = regimeFromOhlc(ohlc);
+      $("status").textContent = `Regime ${i+1} / ${state.positions.length} · ${pos.symbol}`;
+      await loadRegime(pos);
       render();
     }
     $("status").textContent = "Markets updated. Weekly = regime. Daily = swing. Correction = wait on the runner.";
