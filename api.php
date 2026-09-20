@@ -52,14 +52,18 @@ if ($src === 'dp') {
     $allowedPaths = [
         'derivatives/exchanges/alphax-futures' => true,
         'coins/markets' => true,
+        'simple/price' => true,
     ];
     $allowedParams = [
         'include_tickers' => true,
         'vs_currency' => true,
+        'vs_currencies' => true,
+        'include_24hr_change' => true,
         'ids' => true,
         'price_change_percentage' => true,
         'per_page' => true,
         'page' => true,
+        'days' => true,
     ];
     $upstreamBase = 'https://api.coingecko.com/api/v3/';
     $cacheTtl = 180;
@@ -81,11 +85,15 @@ if ($src === 'dp') {
 }
 
 $path = $_GET['path'] ?? '';
-if (!is_string($path) || !isset($allowedPaths[$path])) {
+$ohlcOk = $src === 'gecko' && is_string($path) && preg_match('#^coins/[a-z0-9-]+/ohlc$#', $path);
+if (!is_string($path) || (!isset($allowedPaths[$path]) && !$ohlcOk)) {
     http_response_code(400);
     header('Content-Type: application/json');
     echo json_encode(['error' => 'path not allowed']);
     exit;
+}
+if ($ohlcOk) {
+    $cacheTtl = 1800;
 }
 
 $query = [];

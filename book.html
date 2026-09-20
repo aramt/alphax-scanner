@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HTF Book</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #141b24;
+    --line: #243041;
+    --text: #e8eef6;
+    --muted: #8b9bb0;
+    --accent: #3ee0b2;
+    --warn: #ffb020;
+    --down: #ff5d6c;
+    --up: #3ee0b2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, #173326 0%, transparent 50%), var(--bg);
+    color: var(--text);
+  }
+  header { padding: 28px 24px 12px; max-width: 1280px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.03em; }
+  .sub { color: var(--muted); max-width: 860px; line-height: 1.45; }
+  .nav { display: flex; gap: 8px; margin: 0 0 14px; flex-wrap: wrap; }
+  .nav a {
+    color: var(--muted); border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 12px; font-size: 12px; text-decoration: none;
+  }
+  .nav a.on { color: #062018; background: var(--accent); border-color: transparent; }
+  .toolbar, .controls {
+    max-width: 1280px; margin: 0 auto; padding: 16px 24px 8px;
+    display: grid; gap: 10px;
+  }
+  .toolbar { grid-template-columns: 1fr 1fr 1fr auto auto auto; align-items: end; }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+  input, select, button, textarea {
+    width: 100%; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit;
+  }
+  button {
+    background: var(--accent); color: #062018; font-weight: 700; cursor: pointer; border: 0;
+  }
+  button.secondary { background: #223044; color: var(--text); }
+  button.danger { background: #3a1c24; color: var(--down); }
+  button.tiny { width: auto; padding: 6px 10px; margin: 0; font-size: 12px; }
+  .status { max-width: 1280px; margin: 0 auto; padding: 4px 24px 12px; color: var(--muted); min-height: 28px; }
+  .wrap { max-width: 1280px; margin: 0 auto 40px; padding: 0 24px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 16px 16px 12px; margin: 0 0 12px;
+  }
+  .card-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .sym { font-size: 20px; font-weight: 700; letter-spacing: -0.03em; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    padding: 4px 8px; border-radius: 999px; background: #203027; color: var(--accent);
+  }
+  .pill.mid { background: #2a3340; color: var(--muted); }
+  .pill.warn { background: #3a2e14; color: var(--warn); }
+  .pill.down { background: #3a1c24; color: var(--down); }
+  .grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+  .stat { background: #0f151c; border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+  .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .stat .v { margin-top: 4px; font-size: 16px; font-weight: 650; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th, td { padding: 7px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+  th.name, td.name { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .form-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 10px; align-items: end; }
+  .note { max-width: 1280px; margin: 0 auto 32px; padding: 0 24px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .empty { color: var(--muted); padding: 40px 8px; text-align: center; }
+  @media (max-width: 900px) {
+    .toolbar, .grid, .form-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <nav class="nav">
+    <a href="./">AlphaX perps</a>
+    <a href="./rh.html">RH trenches</a>
+    <a class="on" href="./book.html">HTF book</a>
+  </nav>
+  <h1>HTF Book</h1>
+  <p class="sub">
+    Weekly is the bull. Daily is the swing. Log entries, trims, reloads, and extra margin.
+    Runner stays until the weekly higher-low breaks. Stables are dry powder, not FOMO.
+  </p>
+</header>
+
+<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr auto auto;">
+  <div>
+    <label>Stables / dry powder ($)</label>
+    <input id="stables" type="number" step="1" value="0" />
+  </div>
+  <div>
+    <label>Preset</label>
+    <select id="preset"></select>
+  </div>
+  <div>
+    <label>Or CoinGecko id</label>
+    <input id="customId" placeholder="render-token" />
+  </div>
+  <div>
+    <label>Leverage</label>
+    <input id="newLev" type="number" value="2" min="1" step="0.1" />
+  </div>
+  <button class="secondary" id="refreshBtn">Refresh markets</button>
+  <button class="secondary" id="exportBtn">Backup</button>
+</div>
+<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr auto; padding-top: 0;">
+  <div>
+    <label>Qty (blank = watch only)</label>
+    <input id="newQty" type="number" step="any" placeholder="0" />
+  </div>
+  <div>
+    <label>Entry price</label>
+    <input id="newPx" type="number" step="any" placeholder="optional" />
+  </div>
+  <div>
+    <label>Initial margin $</label>
+    <input id="newMargin" type="number" step="any" placeholder="auto = notional / lev" />
+  </div>
+  <div>
+    <label>Note</label>
+    <input id="newNote" placeholder="open, venue…" />
+  </div>
+  <button id="addBtn">Add coin</button>
+</div>
+<div class="toolbar" style="grid-template-columns: 1fr auto auto; padding-top: 0;">
+  <div class="status" id="status" style="padding: 8px 0;">Idle. Add a coin, then log the fill. Markets load from CoinGecko.</div>
+  <button class="secondary tiny" id="importBtn">Import backup</button>
+  <input id="importFile" type="file" accept="application/json" hidden />
+</div>
+<div class="wrap" id="cards"></div>
+<p class="note">
+  Average entry is the live bag: sells lock realized PnL and leave remaining coins at the old average; buys blend a new average.
+  Extra margin does not change entry — it lowers effective leverage and moves estimated liquidation down.
+  Data lives in this browser only. Export a backup if you care about it. Not a broker, not a signal.
+</p>
+<script>
+const PROXY = "https://aramt.com/alphax-scanner/api.php";
+const STORE = "htf-book-v1";
+const PRESETS = [
+  ["HYPE","hyperliquid"],["RENDER","render-token"],["ENA","ethena"],
+  ["BTC","bitcoin"],["ETH","ethereum"],["SOL","solana"],["TAO","bittensor"],
+  ["LINK","chainlink"],["AAVE","aave"],["UNI","uniswap"],["NEAR","near"],
+  ["SUI","sui"],["ONDO","ondo-finance"],["PENDLE","pendle"],["WLD","worldcoin-wld"],
+  ["DOGE","dogecoin"],["PEPE","pepe"],["AVAX","avalanche-2"],["DOT","polkadot"]
+];
+
+const $ = (id) => document.getElementById(id);
+const uid = () => crypto.randomUUID();
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const fmtUsd = (n, d=0) => {
+  if (n == null || !isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  const x = Math.abs(n);
+  if (x >= 1e6) return sign + "$" + (x/1e6).toFixed(2) + "M";
+  if (x >= 1000) return sign + "$" + x.toLocaleString(undefined,{maximumFractionDigits: d || 0});
+  if (x >= 1) return sign + "$" + x.toFixed(d || 2);
+  return sign + "$" + x.toFixed(4);
+};
+const fmtPx = (n) => {
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 1000) return n.toFixed(1);
+  if (a >= 1) return n.toFixed(3);
+  return n.toFixed(5);
+};
+const fmtPct = (n) => n == null || !isFinite(n) ? "—" : (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
+const clsPnL = (n) => n > 0 ? "up" : n < 0 ? "down" : "";
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORE)) || { stables: 0, positions: [] }; }
+  catch { return { stables: 0, positions: [] }; }
+}
+function save(state) {
+  localStorage.setItem(STORE, JSON.stringify(state));
+}
+
+let state = load();
+let marks = {};
+let regimes = {};
+
+function cgUrl(path, params) {
+  const u = new URL(PROXY);
+  u.searchParams.set("path", path);
+  Object.entries(params || {}).forEach(([k,v]) => u.searchParams.set(k, v));
+  return u.toString();
+}
+async function getJson(url) {
+  for (let i = 0; i < 4; i++) {
+    const res = await fetch(url);
+    if (res.status === 429) {
+      $("status").textContent = "CoinGecko rate limit. Waiting…";
+      await sleep(8000 * (i+1));
+      continue;
+    }
+    if (!res.ok) throw new Error(res.status + " " + url);
+    return res.json();
+  }
+  throw new Error("CoinGecko kept rate-limiting.");
+}
+
+function fold(events) {
+  const list = (events || []).slice().sort((a,b) => a.ts - b.ts);
+  let qty = 0, avg = 0, realized = 0, margin = 0;
+  for (const e of list) {
+    if (e.type === "buy") {
+      const q = Number(e.qty), p = Number(e.price);
+      if (!(q > 0) || !(p > 0)) continue;
+      avg = qty + q > 0 ? (avg * qty + p * q) / (qty + q) : p;
+      qty += q;
+    } else if (e.type === "sell") {
+      const q = Number(e.qty), p = Number(e.price);
+      if (!(q > 0) || !(p > 0)) continue;
+      const sold = Math.min(q, qty);
+      realized += (p - avg) * sold;
+      qty -= sold;
+      if (qty <= 1e-12) { qty = 0; avg = 0; }
+    } else if (e.type === "margin_in") {
+      margin += Number(e.usd) || 0;
+    } else if (e.type === "margin_out") {
+      margin -= Number(e.usd) || 0;
+    }
+  }
+  return { qty, avg, realized, margin };
+}
+
+function toWeekly(daily) {
+  const weeks = [];
+  const map = new Map();
+  for (const b of daily) {
+    const d = new Date(b.t);
+    const day = d.getUTCDay();
+    const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((day + 6) % 7)));
+    const key = monday.toISOString().slice(0,10);
+    let w = map.get(key);
+    if (!w) {
+      w = { t: monday.getTime(), o: b.o, h: b.h, l: b.l, c: b.c };
+      map.set(key, w);
+      weeks.push(w);
+    } else {
+      w.h = Math.max(w.h, b.h);
+      w.l = Math.min(w.l, b.l);
+      w.c = b.c;
+    }
+  }
+  return weeks;
+}
+
+function swings(bars, left, right) {
+  const highs = [], lows = [];
+  for (let i = left; i < bars.length - right; i++) {
+    let sh = true, sl = true;
+    for (let j = i - left; j <= i + right; j++) {
+      if (j === i) continue;
+      if (bars[j].h > bars[i].h) sh = false;
+      if (bars[j].l < bars[i].l) sl = false;
+    }
+    if (sh) highs.push({ i, t: bars[i].t, px: bars[i].h });
+    if (sl) lows.push({ i, t: bars[i].t, px: bars[i].l });
+  }
+  return { highs, lows };
+}
+
+function structure(bars, left, right) {
+  if (!bars || bars.length < left + right + 5) return { state: "NA" };
+  const { highs, lows } = swings(bars, left, right);
+  const lastH = highs[highs.length - 1];
+  const prevH = highs[highs.length - 2];
+  const lastL = lows[lows.length - 1];
+  const prevL = lows[lows.length - 2];
+  const close = bars[bars.length - 1].c;
+  const hh = lastH && prevH && lastH.px > prevH.px;
+  const hl = lastL && prevL && lastL.px > prevL.px;
+  const lh = lastH && prevH && lastH.px < prevH.px;
+  const ll = lastL && prevL && lastL.px < prevL.px;
+  let state = "MIXED";
+  if (hh && hl) state = "UP";
+  else if (lh && ll) state = "DOWN";
+  const broke = lastL && close < lastL.px && (ll || state === "DOWN");
+  if (broke) state = "BROKEN";
+  const impulseLow = lastL;
+  const impulseHigh = lastH;
+  let fib = null;
+  if (impulseLow && impulseHigh && impulseHigh.t > impulseLow.t) {
+    const range = impulseHigh.px - impulseLow.px;
+    fib = {
+      high: impulseHigh.px,
+      low: impulseLow.px,
+      r382: impulseHigh.px - range * 0.382,
+      r50: impulseHigh.px - range * 0.5,
+      r618: impulseHigh.px - range * 0.618,
+      e127: impulseLow.px + range * 1.272,
+      e162: impulseLow.px + range * 1.618
+    };
+  }
+  return { state, lastH, lastL, prevH, prevL, close, fib, broke };
+}
+
+function daysSince(t) {
+  return Math.max(0, Math.round((Date.now() - t) / 86400000));
+}
+
+function regimeFromOhlc(ohlc) {
+  const daily = (ohlc || []).map(x => ({ t: x[0], o: x[1], h: x[2], l: x[3], c: x[4] }));
+  const weekly = toWeekly(daily);
+  const w = structure(weekly, 1, 1);
+  const d = structure(daily, 2, 2);
+  let weeklyState = w.state;
+  if (weeklyState === "BROKEN") weeklyState = "BROKEN";
+  else if (weeklyState === "UP") weeklyState = "UP";
+  else if (weeklyState === "DOWN") weeklyState = "BROKEN";
+  else weeklyState = "WEAK";
+
+  let dailyState = d.state;
+  let correctionDays = 0;
+  if (weeklyState === "UP" && (d.state === "DOWN" || d.state === "BROKEN")) {
+    dailyState = "CORRECTION";
+    const start = (d.lastH && d.lastH.t) || (daily[Math.max(0, daily.length-10)].t);
+    correctionDays = daysSince(start);
+  } else if (d.state === "UP") dailyState = "UP";
+  else if (d.state === "BROKEN" || d.state === "DOWN") dailyState = "DOWN";
+  else dailyState = "MIXED";
+
+  let cycle = "MID";
+  const close = daily.length ? daily[daily.length-1].c : null;
+  const useFib = weeklyState === "UP" && dailyState === "CORRECTION" ? w.fib : d.fib;
+  if (close && d.fib && dailyState === "UP") {
+    if (close >= d.fib.e127 || close >= d.fib.high * 0.985) cycle = "EXTENDED";
+    else if (close <= d.fib.r382 && close >= d.fib.r618) cycle = "DISCOUNTED";
+  }
+  if (close && w.fib && dailyState === "CORRECTION") {
+    if (close <= w.fib.r382 && close >= w.fib.r618) cycle = "DISCOUNTED";
+    else cycle = "MID";
+  }
+
+  let action = "HOLD";
+  if (weeklyState === "BROKEN") action = "EXIT";
+  else if (dailyState === "CORRECTION" && cycle === "DISCOUNTED") action = "STAGED BID";
+  else if (dailyState === "CORRECTION") action = "HOLD RUNNER";
+  else if (cycle === "EXTENDED") action = "TRIM";
+  else if (cycle === "DISCOUNTED" && weeklyState === "UP" && dailyState === "UP") action = "RELOAD";
+  else action = "HOLD";
+
+  return { weeklyState, dailyState, cycle, action, correctionDays, weekly: w, daily: d, close };
+}
+
+function metrics(pos) {
+  const f = fold(pos.events);
+  const mark = marks[pos.geckoId]?.usd;
+  const chg = marks[pos.geckoId]?.usd_24h_change;
+  const unrl = mark != null && f.qty ? (mark - f.avg) * f.qty : 0;
+  const total = f.realized + unrl;
+  const notional = mark != null ? f.qty * mark : null;
+  const lev = f.margin > 0 && notional != null ? notional / f.margin : Number(pos.leverage) || 2;
+  const liq = f.qty > 0 && f.margin > 0 ? f.avg - f.margin / f.qty : null;
+  const roe = f.margin > 0 ? 100 * total / f.margin : null;
+  return { ...f, mark, chg, unrl, total, notional, lev, liq, roe };
+}
+
+function pill(text, kind) {
+  return `<span class="pill ${kind || ""}">${text}</span>`;
+}
+
+function render() {
+  $("stables").value = state.stables ?? 0;
+  const el = $("cards");
+  if (!state.positions.length) {
+    el.innerHTML = `<div class="empty">No coins yet. Add HYPE / RENDER / ENA (or any CoinGecko id), then log the fill.</div>`;
+    return;
+  }
+  el.innerHTML = state.positions.map(pos => {
+    const m = metrics(pos);
+    const r = regimes[pos.geckoId];
+    const wKind = r?.weeklyState === "UP" ? "" : r?.weeklyState === "BROKEN" ? "down" : "warn";
+    const aKind = r?.action === "EXIT" || r?.action === "TRIM" ? (r.action === "EXIT" ? "down" : "warn")
+      : r?.action === "RELOAD" || r?.action === "STAGED BID" ? "" : "mid";
+    const weeklyHL = r?.weekly?.lastL?.px;
+    const hlDist = m.mark && weeklyHL ? 100 * (m.mark - weeklyHL) / m.mark : null;
+    const liqDist = m.mark && m.liq ? 100 * (m.mark - m.liq) / m.mark : null;
+    const events = (pos.events || []).slice().sort((a,b) => b.ts - a.ts);
+    return `<article class="card" data-id="${pos.id}">
+      <div class="card-head">
+        <div>
+          <div class="sym">${pos.symbol}</div>
+          <div class="meta">${pos.geckoId} · target ${pos.leverage || 2}x · ${m.qty ? m.qty.toPrecision(4) : 0} coins</div>
+        </div>
+        <div class="pills">
+          ${r ? pill("Weekly " + r.weeklyState, wKind) : pill("Weekly —", "mid")}
+          ${r ? pill("Daily " + r.dailyState + (r.dailyState==="CORRECTION" ? " d"+r.correctionDays : ""), r.dailyState==="CORRECTION" ? "warn" : "mid") : ""}
+          ${r ? pill(r.cycle, r.cycle==="EXTENDED" ? "warn" : r.cycle==="DISCOUNTED" ? "" : "mid") : ""}
+          ${r ? pill(r.action, aKind) : pill("Load markets", "mid")}
+        </div>
+      </div>
+      <div class="grid">
+        <div class="stat"><div class="k">Mark</div><div class="v">${fmtPx(m.mark)} <span class="${clsPnL(m.chg)}" style="font-size:12px">${fmtPct(m.chg)}</span></div></div>
+        <div class="stat"><div class="k">Avg entry</div><div class="v">${fmtPx(m.avg)}</div></div>
+        <div class="stat"><div class="k">Unrealized</div><div class="v ${clsPnL(m.unrl)}">${fmtUsd(m.unrl,0)}</div></div>
+        <div class="stat"><div class="k">Realized</div><div class="v ${clsPnL(m.realized)}">${fmtUsd(m.realized,0)}</div></div>
+        <div class="stat"><div class="k">Total PnL</div><div class="v ${clsPnL(m.total)}">${fmtUsd(m.total,0)}</div></div>
+        <div class="stat"><div class="k">ROE vs margin</div><div class="v ${clsPnL(m.roe)}">${fmtPct(m.roe)}</div></div>
+        <div class="stat"><div class="k">Notional</div><div class="v">${fmtUsd(m.notional,0)}</div></div>
+        <div class="stat"><div class="k">Margin in</div><div class="v">${fmtUsd(m.margin,0)}</div></div>
+        <div class="stat"><div class="k">Eff. lev</div><div class="v">${m.lev && isFinite(m.lev) ? m.lev.toFixed(2)+"x" : "—"}</div></div>
+        <div class="stat"><div class="k">Est. liq</div><div class="v">${fmtPx(m.liq)} <span style="font-size:12px;color:var(--muted)">${liqDist!=null ? liqDist.toFixed(0)+"% away" : ""}</span></div></div>
+        <div class="stat"><div class="k">Weekly HL</div><div class="v">${fmtPx(weeklyHL)} <span style="font-size:12px;color:var(--muted)">${hlDist!=null ? hlDist.toFixed(0)+"% away" : ""}</span></div></div>
+        <div class="stat"><div class="k">Weekly 0.5</div><div class="v">${fmtPx(r?.weekly?.fib?.r50)}</div></div>
+      </div>
+      <div class="actions">
+        <button class="tiny" data-act="buy">Buy / add</button>
+        <button class="tiny secondary" data-act="sell">Sell / trim</button>
+        <button class="tiny secondary" data-act="half">Trim 50%</button>
+        <button class="tiny secondary" data-act="margin_in">Add margin</button>
+        <button class="tiny secondary" data-act="margin_out">Pull margin</button>
+        <button class="tiny danger" data-act="remove">Remove coin</button>
+      </div>
+      <div class="form-row" data-form hidden>
+        <div><label>Qty</label><input data-f="qty" type="number" step="any" /></div>
+        <div><label>Price</label><input data-f="price" type="number" step="any" /></div>
+        <div><label>USD (margin)</label><input data-f="usd" type="number" step="any" /></div>
+        <div><label>Note</label><input data-f="note" placeholder="optional" /></div>
+        <button class="tiny" data-act="commit">Save fill</button>
+      </div>
+      <details>
+        <summary>Ledger (${events.length} events)</summary>
+        <table>
+          <thead><tr><th class="name">When</th><th class="name">Type</th><th>Qty</th><th>Price</th><th>USD</th><th class="name">Note</th></tr></thead>
+          <tbody>
+            ${events.map(e => `<tr>
+              <td class="name">${new Date(e.ts).toLocaleString()}</td>
+              <td class="name">${e.type}</td>
+              <td>${e.qty ?? ""}</td>
+              <td>${e.price ?? ""}</td>
+              <td>${e.usd ?? ""}</td>
+              <td class="name">${e.note || ""}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </details>
+    </article>`;
+  }).join("");
+}
+
+function posById(id) { return state.positions.find(p => p.id === id); }
+
+function promptFill(pos, type, preset) {
+  const card = document.querySelector(`[data-id="${pos.id}"]`);
+  const form = card.querySelector("[data-form]");
+  form.hidden = false;
+  form.dataset.type = type;
+  const m = metrics(pos);
+  form.querySelector('[data-f="price"]').value = preset?.price ?? m.mark ?? "";
+  form.querySelector('[data-f="qty"]').value = preset?.qty ?? "";
+  form.querySelector('[data-f="usd"]').value = preset?.usd ?? "";
+  form.querySelector('[data-f="note"]').value = "";
+  form.querySelector('[data-f="qty"]').parentElement.style.display = type.startsWith("margin") ? "none" : "";
+  form.querySelector('[data-f="price"]').parentElement.style.display = type.startsWith("margin") ? "none" : "";
+  form.querySelector('[data-f="usd"]').parentElement.style.display = type.startsWith("margin") ? "" : "none";
+}
+
+function commitFill(pos, type, fields) {
+  const ev = { id: uid(), type, ts: Date.now(), note: fields.note || "" };
+  if (type === "buy" || type === "sell") {
+    ev.qty = Number(fields.qty);
+    ev.price = Number(fields.price);
+    if (!(ev.qty > 0) || !(ev.price > 0)) return alert("Qty and price required.");
+    if (type === "sell" && ev.qty > fold(pos.events).qty + 1e-9) return alert("Sell qty > position.");
+  } else {
+    ev.usd = Number(fields.usd);
+    if (!(ev.usd > 0)) return alert("USD amount required.");
+  }
+  pos.events.push(ev);
+  save(state);
+  render();
+}
+
+$("preset").innerHTML = PRESETS.map(([s,id]) => `<option value="${id}">${s}</option>`).join("");
+$("stables").value = state.stables ?? 0;
+$("stables").addEventListener("change", () => {
+  state.stables = Number($("stables").value) || 0;
+  save(state);
+});
+
+$("addBtn").addEventListener("click", () => {
+  const geckoId = ($("customId").value.trim() || $("preset").value).toLowerCase();
+  const preset = PRESETS.find(([,id]) => id === geckoId);
+  const symbol = (preset ? preset[0] : geckoId.split("-")[0]).toUpperCase();
+  if (!geckoId) return alert("Pick a preset or CoinGecko id.");
+  if (state.positions.some(p => p.geckoId === geckoId)) return alert("Already in the book.");
+  const qty = Number($("newQty").value) || 0;
+  const price = Number($("newPx").value) || 0;
+  const lev = Number($("newLev").value) || 2;
+  const note = $("newNote").value.trim() || "open";
+  if (qty > 0 && !(price > 0)) return alert("Entry price required when qty is set.");
+  let margin = Number($("newMargin").value);
+  if (!(margin > 0) && qty > 0) margin = (qty * price) / lev;
+  const pos = { id: uid(), symbol, geckoId, leverage: lev, events: [] };
+  if (qty > 0) {
+    pos.events.push({ id: uid(), type: "buy", ts: Date.now(), qty, price, note });
+    if (margin > 0) pos.events.push({ id: uid(), type: "margin_in", ts: Date.now(), usd: margin, note: "initial margin" });
+  }
+  state.positions.push(pos);
+  save(state);
+  $("newQty").value = ""; $("newPx").value = ""; $("newMargin").value = ""; $("newNote").value = "";
+  render();
+  refreshOne(pos);
+});
+
+$("cards").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const card = e.target.closest("[data-id]");
+  const pos = posById(card.dataset.id);
+  const act = btn.dataset.act;
+  if (act === "remove") {
+    if (!confirm("Remove " + pos.symbol + " from the book?")) return;
+    state.positions = state.positions.filter(p => p.id !== pos.id);
+    save(state); render(); return;
+  }
+  if (act === "half") {
+    const f = fold(pos.events);
+    if (!(f.qty > 0)) return alert("No coins to trim.");
+    promptFill(pos, "sell", { qty: f.qty / 2, price: metrics(pos).mark });
+    return;
+  }
+  if (act === "commit") {
+    const form = card.querySelector("[data-form]");
+    const fields = {};
+    form.querySelectorAll("[data-f]").forEach(inp => fields[inp.dataset.f] = inp.value);
+    commitFill(pos, form.dataset.type, fields);
+    form.hidden = true;
+    return;
+  }
+  promptFill(pos, act);
+});
+
+$("exportBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "htf-book.json";
+  a.click();
+});
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  state = JSON.parse(await file.text());
+  if (!state.positions) throw new Error("Bad backup");
+  save(state); render();
+  $("status").textContent = "Imported " + state.positions.length + " coins.";
+});
+
+async function refreshOne(pos) {
+  $("status").textContent = "Loading " + pos.symbol + "…";
+  const price = await getJson(cgUrl("simple/price", {
+    ids: pos.geckoId, vs_currencies: "usd", include_24hr_change: "true"
+  }));
+  const row = price[pos.geckoId];
+  if (row) marks[pos.geckoId] = row;
+  const ohlc = await getJson(cgUrl("coins/" + pos.geckoId + "/ohlc", { vs_currency: "usd", days: "365" }));
+  if (Array.isArray(ohlc)) regimes[pos.geckoId] = regimeFromOhlc(ohlc);
+  render();
+}
+
+async function refreshAll() {
+  $("refreshBtn").disabled = true;
+  try {
+    const ids = [...new Set(state.positions.map(p => p.geckoId))];
+    if (!ids.length) { $("status").textContent = "Nothing to refresh."; return; }
+    $("status").textContent = "Loading marks…";
+    const price = await getJson(cgUrl("simple/price", {
+      ids: ids.join(","), vs_currencies: "usd", include_24hr_change: "true"
+    }));
+    ids.forEach(id => { if (price[id]) marks[id] = price[id]; });
+    for (let i = 0; i < state.positions.length; i++) {
+      const pos = state.positions[i];
+      $("status").textContent = `OHLC ${i+1} / ${state.positions.length} · ${pos.symbol}`;
+      const ohlc = await getJson(cgUrl("coins/" + pos.geckoId + "/ohlc", { vs_currency: "usd", days: "365" }));
+      if (Array.isArray(ohlc)) regimes[pos.geckoId] = regimeFromOhlc(ohlc);
+      render();
+    }
+    $("status").textContent = "Markets updated. Weekly = regime. Daily = swing. Correction = wait on the runner.";
+  } catch (err) {
+    $("status").textContent = err.message || String(err);
+  } finally {
+    $("refreshBtn").disabled = false;
+  }
+}
+
+$("refreshBtn").addEventListener("click", refreshAll);
+render();
+if (state.positions.length) refreshAll();
+</script>
+</body>
+</html>
