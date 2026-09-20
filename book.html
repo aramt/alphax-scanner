@@ -118,10 +118,14 @@
   </p>
 </header>
 
-<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr auto auto auto;">
+<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto auto auto;">
   <div>
     <label>Stables / dry powder ($)</label>
     <input id="stables" type="number" step="1" value="0" />
+  </div>
+  <div>
+    <label>Funding est (%/yr)</label>
+    <input id="fundingApr" type="number" step="0.5" min="0" value="8" />
   </div>
   <div>
     <label>Preset</label>
@@ -217,6 +221,13 @@ const EXTENDED_Z = 2.0;
 // optimal. Treat TRIM/EXIT as a prompt to look, never as a number to trust.
 const REGIME_MA = 100;
 const REGIME_WEEKS = 2;
+// Perps pay funding continuously and the book never charged it, so every PnL
+// figure was overstated. Measured on OKX over 95 days, longs paid in 79-91% of
+// funding periods: BTC 5.4%/yr, ETH 3.9%/yr, DOGE 6.3%/yr on NOTIONAL. At 2x
+// that is roughly twice as much against margin. 8% is a middle estimate for a
+// book of alts, which tend to run hotter than majors. Editable in the toolbar;
+// stored per book. Set it to 0 to switch funding off entirely.
+const FUNDING_APR_DEFAULT = 8;
 const STORE = "htf-book-v1";
 const SYNC_STORE = "htf-book-sync-hash";
 const VIEW_STORE = "htf-book-view";
@@ -278,7 +289,7 @@ function fmtCoins(n) {
 }
 
 function emptyBook() {
-  return { stables: 0, positions: [], updated_at: 0 };
+  return { stables: 0, fundingApr: FUNDING_APR_DEFAULT, positions: [], updated_at: 0 };
 }
 function load() {
   try { return JSON.parse(localStorage.getItem(STORE)) || emptyBook(); }
@@ -617,6 +628,31 @@ function actionFor(r, ps) {
   return "HOLD";
 }
 
+// Funding accrues on notional, but the ledger only knows events. Accrue across
+// each gap between consecutive events on the size held during that gap, using
+// the last transacted price as the stand-in for the price path and the live
+// mark for the still-open gap. It is an estimate and is shown on its own line,
+// so it never silently rewrites realized or unrealized PnL.
+function fundingCost(events, apr, mark, now) {
+  const rate = Number(apr) / 100;
+  if (!(rate > 0)) return 0;
+  const list = (events || []).slice().sort((a, b) => a.ts - b.ts);
+  const YEAR = 365 * 86400000;
+  let qty = 0, px = 0, cost = 0, t = null;
+  const accrue = (to, price) => {
+    if (t != null && qty > 0 && price > 0 && to > t) cost += qty * price * rate * ((to - t) / YEAR);
+  };
+  for (const e of list) {
+    accrue(e.ts, px);
+    const q = Number(e.qty), p = Number(e.price);
+    if (e.type === "buy" && q > 0 && p > 0) { qty += q; px = p; }
+    else if (e.type === "sell" && q > 0 && p > 0) { qty = Math.max(0, qty - q); px = p; }
+    t = e.ts;
+  }
+  accrue(now, mark > 0 ? mark : px);
+  return cost;
+}
+
 function metrics(pos) {
   const f = fold(pos.events);
   const mark = marks[pos.geckoId]?.usd;
@@ -626,8 +662,10 @@ function metrics(pos) {
   const notional = mark != null ? f.qty * mark : null;
   const lev = f.margin > 0 && notional != null ? notional / f.margin : Number(pos.leverage) || 2;
   const liq = f.qty > 0 && f.margin > 0 ? f.avg - f.margin / f.qty : null;
-  const roe = f.margin > 0 ? 100 * total / f.margin : null;
-  return { ...f, mark, chg, unrl, total, notional, lev, liq, roe };
+  const funding = fundingCost(pos.events, state.fundingApr ?? FUNDING_APR_DEFAULT, mark, Date.now());
+  const net = total - funding;
+  const roe = f.margin > 0 ? 100 * net / f.margin : null;
+  return { ...f, mark, chg, unrl, total, funding, net, notional, lev, liq, roe };
 }
 
 function pill(text, kind) {
@@ -661,13 +699,14 @@ function miniCard(pos) {
       <span style="color:${regCol}">${regTxt}</span>
       <b class="${clsPnL(m.chg)}">${fmtPct(m.chg)}</b>
     </div>
-    <div class="mini-row"><span>${m.qty ? "PnL" : "watching"}</span><b class="${clsPnL(m.total)}">${m.qty ? fmtUsd(m.total, 0) : ""}</b></div>
+    <div class="mini-row"><span>${m.qty ? "PnL" : "watching"}</span><b class="${clsPnL(m.net)}">${m.qty ? fmtUsd(m.net, 0) : ""}</b></div>
     <div class="mini-bar" title="stretch toward the TRIM threshold"><i style="width:${(100*frac).toFixed(0)}%;background:${frac >= 1 ? "var(--warn)" : "var(--accent)"}"></i></div>
   </article>`;
 }
 
 function render() {
   $("stables").value = state.stables ?? 0;
+  $("fundingApr").value = state.fundingApr ?? FUNDING_APR_DEFAULT;
   const el = $("cards");
   el.className = "wrap" + (simpleView && state.positions.length ? " simple" : "");
   document.body.classList.toggle("simple-mode", simpleView && state.positions.length > 0);
@@ -710,8 +749,10 @@ function render() {
         <div class="stat"><div class="k">Avg entry</div><div class="v">${fmtPx(m.avg)}</div></div>
         <div class="stat"><div class="k">Unrealized</div><div class="v ${clsPnL(m.unrl)}">${fmtUsd(m.unrl,0)}</div></div>
         <div class="stat"><div class="k">Realized</div><div class="v ${clsPnL(m.realized)}">${fmtUsd(m.realized,0)}</div></div>
-        <div class="stat"><div class="k">Total PnL</div><div class="v ${clsPnL(m.total)}">${fmtUsd(m.total,0)}</div></div>
-        <div class="stat"><div class="k">ROE vs margin</div><div class="v ${clsPnL(m.roe)}">${fmtPct(m.roe)}</div></div>
+        <div class="stat"><div class="k">Total PnL (gross)</div><div class="v ${clsPnL(m.total)}">${fmtUsd(m.total,0)}</div></div>
+        <div class="stat"><div class="k">Funding (est)</div><div class="v ${m.funding > 0 ? "down" : ""}">${m.funding > 0 ? "-" + fmtUsd(m.funding,0).replace("-","") : "—"}</div></div>
+        <div class="stat"><div class="k">Net PnL</div><div class="v ${clsPnL(m.net)}">${fmtUsd(m.net,0)}</div></div>
+        <div class="stat"><div class="k">ROE (net)</div><div class="v ${clsPnL(m.roe)}">${fmtPct(m.roe)}</div></div>
         <div class="stat"><div class="k">Notional</div><div class="v">${fmtUsd(m.notional,0)}</div></div>
         <div class="stat"><div class="k">Margin in</div><div class="v">${fmtUsd(m.margin,0)}</div></div>
         <div class="stat"><div class="k">Eff. lev</div><div class="v">${m.lev && isFinite(m.lev) ? m.lev.toFixed(2)+"x" : "—"}</div></div>
@@ -812,6 +853,10 @@ function commitFill(pos, type, fields) {
 
 $("preset").innerHTML = PRESETS.map(([s,id]) => `<option value="${id}">${s}</option>`).join("");
 $("stables").value = state.stables ?? 0;
+$("fundingApr").addEventListener("change", () => {
+  state.fundingApr = Math.max(0, Number($("fundingApr").value) || 0);
+  save(state); render();
+});
 $("stables").addEventListener("change", () => {
   state.stables = Number($("stables").value) || 0;
   save(state);

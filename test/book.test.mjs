@@ -28,10 +28,10 @@ function grab(name) {
 }
 
 const NAMES = ["fold", "sizeFromInputs", "bucketBars", "toDaily", "toWeekly",
-               "swings", "structure", "stretchZ", "trendRegime", "daysSince", "regimeFromOhlc", "actionFor"];
+               "swings", "structure", "stretchZ", "trendRegime", "fundingCost", "daysSince", "regimeFromOhlc", "actionFor"];
 // The EXTENDED threshold is a top-level const, not a function.
-const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const REGIME_WEEKS = \d+;/)[0];
-const { fold, sizeFromInputs, structure, stretchZ, trendRegime, regimeFromOhlc, actionFor } =
+const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const FUNDING_APR_DEFAULT = [\d.]+;/)[0];
+const { fold, sizeFromInputs, structure, stretchZ, trendRegime, fundingCost, regimeFromOhlc, actionFor } =
   new Function(CONSTS + "\n" + NAMES.map(grab).join("\n") + `\nreturn {${NAMES.join(",")}};`)();
 
 let pass = 0, fail = 0;
@@ -240,6 +240,42 @@ group("Regime gate (200 DMA, confirmed on weekly closes)");
   ok("THIN emits no trade action",
      actionFor({ weeklyState: "THIN", dailyState: "UP", cycle: "EXTENDED", closes2: [1, 2], daily: {} },
                { qty: 100, peakQty: 100, lastSell: null }) === "HOLD");
+}
+
+group("Funding accrual");
+{
+  const DAY = 86400000, T0 = Date.UTC(2025, 0, 1);
+  const YEAR_LATER = T0 + 365 * DAY;
+
+  // 100 coins at $10 = $1,000 notional held for exactly one year at 8%/yr.
+  const held = [{ ts: T0, type: "buy", qty: 100, price: 10 }];
+  ok("one year at 8% on $1,000 notional costs $80",
+     Math.abs(fundingCost(held, 8, 10, YEAR_LATER) - 80) < 0.01,
+     `got ${fundingCost(held, 8, 10, YEAR_LATER).toFixed(2)}`);
+
+  ok("a zero rate costs nothing", fundingCost(held, 0, 10, YEAR_LATER) === 0);
+  ok("half the year costs half", Math.abs(fundingCost(held, 8, 10, T0 + 182.5 * DAY) - 40) < 0.01);
+
+  ok("funding scales with the mark, not the entry",
+     fundingCost(held, 8, 20, YEAR_LATER) > fundingCost(held, 8, 10, YEAR_LATER));
+
+  // Closed after half a year: no accrual on a flat position afterwards.
+  const closed = [{ ts: T0, type: "buy", qty: 100, price: 10 },
+                  { ts: T0 + 182.5 * DAY, type: "sell", qty: 100, price: 10 }];
+  ok("a closed position stops accruing",
+     Math.abs(fundingCost(closed, 8, 10, YEAR_LATER) - 40) < 0.01,
+     `got ${fundingCost(closed, 8, 10, YEAR_LATER).toFixed(2)}`);
+
+  ok("a watch-only row with no fills costs nothing", fundingCost([], 8, 10, YEAR_LATER) === 0);
+  ok("margin events alone do not accrue funding",
+     fundingCost([{ ts: T0, type: "margin_in", usd: 5000 }], 8, 10, YEAR_LATER) === 0);
+
+  // Trimming half the position halves the accrual from that point on.
+  const trimmed = [{ ts: T0, type: "buy", qty: 100, price: 10 },
+                   { ts: T0 + 182.5 * DAY, type: "sell", qty: 50, price: 10 }];
+  ok("a trim reduces funding from the trim onward",
+     Math.abs(fundingCost(trimmed, 8, 10, YEAR_LATER) - 60) < 0.01,
+     `got ${fundingCost(trimmed, 8, 10, YEAR_LATER).toFixed(2)}`);
 }
 
 console.log(`\n${fail ? "FAILED" : "ok"} — ${pass} passed, ${fail} failed\n`);

@@ -200,13 +200,38 @@ kind = notional:  qty = usd / price             →  8_000 coins, $1k margin
 - Est. liq (linear perp, rough) = `avg - margin/qty`
 - ROE = `total / margin`
 
-No funding, no fees, no liquidation engine. Liq is a distance check vs weekly HL (“is leverage the constraint, or the trend?”).
+**Funding is now charged** (see below). No trading fees, no liquidation engine. Liq is a distance check vs weekly HL (“is leverage the constraint, or the trend?”).
 
 **Add coin:** preset or CoinGecko id, leverage, USD + kind (margin vs notional) or qty override.
 
 Presets (CoinGecko ids): HYPE `hyperliquid`, RENDER `render-token`, ENA `ethena`, PENDLE `pendle`, PUMP `pump-fun`, LIT `lighter`, XPL `plasma`, plus majors.
 
 Watch-only: add with no qty/USD.
+
+### Funding
+
+Perps pay funding continuously and the book charged none of it, so every PnL
+number was overstated. Measured on OKX over 95 days, longs paid in **79–91% of
+funding periods**: BTC **5.4%/yr**, ETH **3.9%/yr**, DOGE **6.3%/yr** on
+*notional*. At 2x that is roughly double against margin.
+
+`fundingCost()` accrues across each gap between consecutive ledger events, on
+the size held during that gap, using the last transacted price as the stand-in
+for the price path and the live mark for the still-open gap. It needs no new
+data source — only the event history already in the book.
+
+`FUNDING_APR_DEFAULT` is **8%/yr**, editable in the toolbar and stored per book
+as `fundingApr`. Set it to 0 to switch funding off.
+
+**It is an estimate, and it is shown on its own line** — `Total PnL (gross)`,
+`Funding (est)`, `Net PnL` — so it never silently rewrites realized or
+unrealized PnL. `ROE (net)` and the simple-view tile use the net figure.
+
+Known limits: one global rate for the whole book, not per coin; the real rate
+varies by venue and by day, and AlphaX funding will not match OKX's; and the
+price path between events is approximated by the last transacted price, so a
+position held across a large move is estimated rather than exact. Logging exact
+`funding` events is the obvious next step if the estimate proves too coarse.
 
 ### Simple view
 
@@ -448,6 +473,7 @@ Please grade against **intent**, not against a Bloomberg terminal.
 - `EXTENDED_Z` is unvalidated. It is a reasonable dial, not a backtested edge, and it fires very unevenly across coins (see above). Treat TRIM as a prompt to look, not a number to trust.
 - RE-ENTER buys strength. The two-close guard blocks same-day reversals but not a two-day fakeout. In chop it will be wrong.
 - Stretch uses `SMA50` of daily **closes**, so it inherits the close-only weakness above. It needs 80 daily bars; below that `stretchZ` returns null and the cycle stays MID.
+- Funding is a flat estimated rate, not the venue's actual per-period rate. See above.
 - Tests cover the pure logic only (`fold`, `sizeFromInputs`, `structure`, `stretchZ`, `regimeFromOhlc`, `actionFor`). Nothing covers the DOM, the sync layer, or the PHP.
 
 ---
