@@ -7,6 +7,8 @@ header('Access-Control-Allow-Headers: Content-Type');
 header('Access-Control-Expose-Headers: X-Book-Status');
 header('Vary: Origin');
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(204);
@@ -21,7 +23,7 @@ if (!is_string($key) || !preg_match('/^[a-f0-9]{64}$/', $key)) {
     exit;
 }
 
-$dir = __DIR__ . '/data/books';
+$dir = __DIR__ . '/../../private/alphax-books';
 if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
     http_response_code(500);
     echo json_encode(['error' => 'store unavailable']);

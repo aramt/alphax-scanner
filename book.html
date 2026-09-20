@@ -228,6 +228,7 @@ async function pushBook() {
     const res = await fetch(BOOK_API + "?k=" + encodeURIComponent(syncKey), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      cache: "no-store",
       body: JSON.stringify(state)
     });
     if (!res.ok) throw new Error("sync save " + res.status);
@@ -240,7 +241,7 @@ async function pushBook() {
   }
 }
 async function pullBook() {
-  const res = await fetch(BOOK_API + "?k=" + encodeURIComponent(syncKey));
+  const res = await fetch(BOOK_API + "?k=" + encodeURIComponent(syncKey), { cache: "no-store" });
   if (!res.ok) throw new Error("sync load " + res.status);
   return res.json();
 }
