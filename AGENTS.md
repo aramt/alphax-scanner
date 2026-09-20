@@ -46,6 +46,8 @@ config.php          GITIGNORED. CoinGecko demo API key. Lives on the server.
 config.example.php  Shape of config.php, no secrets
 cache/              Proxy response cache (gitignored JSON)
 data/books/         Unused leftover path; live books are NOT here
+test/               Node tests for the book's pure logic (not deployed)
+.claude/            Local tooling only; not part of the app
 ```
 
 On the server, book files live **outside the web root**:
@@ -206,6 +208,16 @@ Presets (CoinGecko ids): HYPE `hyperliquid`, RENDER `render-token`, ENA `ethena`
 
 Watch-only: add with no qty/USD.
 
+### Simple view
+
+`viewBtn` toggles a compact grid (`.wrap.simple`) of one tile per coin: symbol,
+mark, the action, regime, 24h change, PnL, and a bar showing how far the coin has
+travelled toward `EXTENDED_Z`. The add-coin, entry and sync rows are hidden
+(`body.simple-mode .toolbar.adv`) so the whole book fits above the fold. Clicking
+a tile drops back to that coin's detailed card — the simple view is a snapshot,
+never somewhere you log a fill from. The preference is per-browser in
+`localStorage` (`htf-book-view`) and is deliberately **not** synced.
+
 ### Book persistence
 
 1. `localStorage` key `htf-book-v1` (cache).
@@ -229,31 +241,85 @@ This is last-write-wins, not CRDT. Fine for one human. Do not log fills on two d
 
 Weekly bucket: Monday UTC.
 
-### Structure algorithm (`structure()` in `book.html`)
+### Regime: is the bull still alive? (`trendRegime` in `book.html`)
 
-Fractal swings:
+**BULL** until **two consecutive weekly closes** land under the **100 DMA**; back
+to BULL on the first weekly close above it. **THIN** when there are fewer than
+107 daily bars — reported as its own state instead of being folded into a
+bearish-looking label, and it emits no trade action.
 
-- Weekly: left=1, right=1 (needs one bar on each side to confirm).
-- Daily: left=2, right=2.
+This replaced the old rule (close under the last confirmed weekly swing low).
+Replayed on real daily closes for HYPE, ENA, RENDER, PENDLE and BTC over the
+same window, the candidates scored:
 
-A confirmed swing high at `i` is a bar whose high is ≥ neighbors in `[i-left, i+right]`. Same for lows. **The current incomplete week cannot be a confirmed swing.** That lag is why a name sitting on ATH can look like a “lower high” if you only compare the last two *confirmed* highs.
+| rule | episodes | whipsaws |
+|---|---|---|
+| old: close < last confirmed weekly swing low | 18 | **18** |
+| close < 50 DMA | 28 | 22 |
+| close < 200 DMA | 12 | 8 |
+| close < *falling* 200 DMA | 16 | 7 |
+| **2 weekly closes < 200 DMA** | 6 | **0** |
+| 2 weekly closes < 140 DMA | 4 | 0 |
 
-**Regime rules we actually encode (after a bugfix):**
+(whipsaw = a BROKEN call that resolved back to BULL within 14 days.) The old
+rule whipsawed on every one of its 18 exits. A daily MA cross still whipsawed 8
+times; testing the cross only on weekly closes removed them entirely.
 
-Let `lastH` / `lastL` be the last **confirmed** swing high/low. `close` is the latest bar close.
+**Backtested on 8.7 years of real OKX daily OHLC** (BTC, ETH, SOL, LINK, AVAX,
+DOGE — through the 2021 top and the 2022 bear), walk-forward, decision taken at
+the prior close. Pooled result vs buy-and-hold, at 2 weekly closes:
 
-1. **BROKEN** if `close < lastL` (lost the last swing low). This is the only weekly invalidation.
-2. **UP** if `close > lastH` (already took the last confirmed high — a live breakout/ATH counts even before the new high is confirmed) **or** classic HH+HL.
-3. **DOWN** if last two confirmed highs are lower **and** last two confirmed lows are lower, but close is still ≥ lastL.
-4. Else **MIXED**.
+| MA | 60 | 70 | 80 | 90 | **100** | 110 | 120 | 140 | 160 | 180 | 200 | 250 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| vs hold | +231% | +133% | +40% | +107% | **+102%** | +45% | +32% | +12% | −6% | −3% | **−20%** | −61% |
 
-Weekly label mapping:
+`REGIME_MA` was originally 200, chosen on whipsaw count over a 5-month bull
+sample. **That was wrong** — 200 returned 20% less than buy-and-hold over the
+full period and was beaten by every faster setting. Minimising whipsaws is a bad
+proxy for making money.
 
-- `BROKEN` → pill **Weekly BROKEN** → action **EXIT**
-- `UP` → **Weekly UP**
-- `DOWN` or `MIXED` → **Weekly WEAK** (still above lastL; do **not** treat as EXIT)
+**What this does NOT establish.** Split in half, the filter *lost* over
+2018–2021 (100/2: −28%) and *won* over 2022–2026 (+102%) — and the best length
+flips between the halves (100 in the first, 140 in the second). The sweep is
+jagged: adjacent lengths swing by 60+ points, so any single pick is
+substantially luck. 100 is chosen because it wins the full sample and the weaker
+half and is never catastrophic, not because it is optimal. 100 vs 140 is inside
+the noise.
 
-**Do not** map weekly `DOWN` fractals to BROKEN. That was the bug that marked HYPE as EXIT at ATH: last confirmed highs were still the July stall (~$71 / $73) while price was ~$93. Weekly HL on the card was ~$52 (44% below) — inconsistent with BROKEN.
+Drawdown protection is real but modest: at 100/2, max drawdown was −52% (BTC)
+and −70% (ETH) against −77% and −94% buy-and-hold, but still −88% on LINK and
+−92% on DOGE. **At 2x that is a liquidation either way.** The filter is not a
+risk control.
+
+The cost/benefit is time-shifted: the filter pays for itself in bears and costs
+you in violent melt-ups (its 2018–2021 loss is mostly missed 2020–21 upside).
+Under an "early bull" thesis the cost comes first and the benefit comes later.
+
+A 5% and a 10% buffer under the MA were both tested and made things worse (21
+and 29 episodes). No buffer is used. The cost is that a marginal break — price
+0.3% under the line on two weekly closes — reads the same as a decisive one.
+
+### Do not de-risk into weakness
+
+Replaying "sell the swing sleeve when the book says CORRECTION, buy back on the
+first redeploy signal" over the same real data: **30 of 35 round trips lost
+money, −139% total, −3.97% average.** The cause is that CORRECTION was never a
+correction detector — **86% of its episodes never fell more than 5% below where
+they started, and the median depth was 0.0%.** PENDLE printed 12 in seven months.
+
+So CORRECTION stays **informational**. It maps to HOLD RUNNER and never to an
+exit. The way to hold stables during a drawdown is to have **trimmed into the
+top** (TRIM builds the pile, RELOAD / STAGED BID / RE-ENTER spend it), not to
+sell the dip. Stables are a consequence of selling strength, never of selling
+weakness.
+
+### Fractal structure (`structure()` in `book.html`)
+
+Still used for the **daily** swing state and for the weekly **fib box** only —
+no longer for the regime.
+
+Weekly fractals no longer produce a regime label. `structure(weekly, 1, 1)` is
+kept only for `w.fib`, the weekly retracement box used by STAGED BID.
 
 Daily:
 
@@ -262,21 +328,77 @@ Daily:
 
 Cycle (extended vs discounted):
 
-- Daily UP: **EXTENDED** if close ≥ 1.272 of last impulse **or** within 1.5% of impulse high; **DISCOUNTED** if close in 0.382–0.618 retrace.
+- Daily UP: **EXTENDED** if the stretch z-score (below) is ≥ `EXTENDED_Z`; **DISCOUNTED** if close in the 0.382–0.618 retrace box.
 - CORRECTION: use **weekly** fib of last weekly impulse (lastL → live 26-bar high). Discounted if in weekly 0.382–0.618 box.
 
-Impulse fib: `lastL` to `liveHigh` where `liveHigh = max(close, last 26 bars’ highs)`.
+Retrace fib: `lastL` to `liveHigh` where `liveHigh = max(close, last 26 bars' highs)`. Retracement only — see below for why the extension moved off fibs.
 
-Actions:
+**Stretch (`stretchZ`), and why EXTENDED was rebuilt.** The old test was
+`close >= e127 || close >= high * 0.985`, and both halves were broken:
 
-| Weekly | Daily | Cycle | Action |
-|---|---|---|---|
-| BROKEN | * | * | **EXIT** |
-| UP | CORRECTION | DISCOUNTED | **STAGED BID** |
-| UP | CORRECTION | else | **HOLD RUNNER** |
-| UP | UP | EXTENDED | **TRIM** |
-| UP | UP | DISCOUNTED | **RELOAD** |
-| else | | | **HOLD** |
+- `e127` was projected off `liveHigh`, and `liveHigh` includes `close`, so
+  `e127 > close` always. It could never fire. Measured: 0 hits in 79 bars.
+- The surviving clause was therefore the whole rule — and it is true at **any**
+  new high, since `close == liveHigh >= 0.985 * liveHigh`. So every breakout
+  read EXTENDED and the book said TRIM into strength.
+
+Measuring the extension off the last *confirmed* pivots does not fix it either:
+after a consolidation the last confirmed pivot pair **is** the consolidation, so
+1.272 of a chop range is a meaningless threshold (tested: a 2.30-wide wiggle
+produced an x127 only 0.6 above the range high). A percentile rank does not work
+either — on real daily closes the same setting fired on 2% of RENDER days and
+93% of ENA days.
+
+What ships instead: `stretchZ` takes `close / SMA50 - 1`, then scores today
+against the distribution of that value over the coin's own last year. EXTENDED
+is `z >= EXTENDED_Z` with stretch positive.
+
+**`EXTENDED_Z` is a judgment dial, not a discovered constant.** At the default
+2.0, measured on real daily closes gated to weekly-UP + daily-UP, it fires on
+roughly 14% of HYPE days, 28% of PENDLE, 17% of BTC, ~0% of RENDER and ~87% of
+ENA. It does **not** behave uniformly across coins. Raise it to trim less, lower
+it to trim more. The card shows the raw stretch % and the z-score next to the
+threshold so any TRIM call can be checked by hand.
+
+### Actions depend on the ledger, not only on price
+
+`regimeFromOhlc` is price-only and cached per coin. The action is derived
+separately by `actionFor(regime, positionState)` **at render time**, so logging
+a fill changes the action immediately instead of waiting for a refresh.
+
+`fold()` additionally returns `peakQty` (largest size held since the position was
+last flat) and `lastSell` (price of the most recent sell). Both reset when qty
+hits 0, because a re-entry after a full exit is a new position, not a trim.
+A position is **trimmed** when `0 < qty < peakQty`.
+
+**RE-ENTER — the missing invalidation.** A trim previously had no invalidation
+level. The runner has one (weekly BROKEN); the swing sleeve had an entry trigger
+and an exit trigger but no "I was wrong to sell" trigger. If price never
+retraced to the 0.382–0.618 box and instead broke out, the book said TRIM again
+and you ratcheted out of your best name. RE-ENTER fires when **all** hold:
+
+- weekly UP **and** daily UP
+- daily `tookHigh` (structural break of the last confirmed daily high)
+- the **last two** daily closes are above `lastSell` — one reclaim wick that
+  reverses the same day does not count
+- the position is trimmed (`0 < qty < peakQty`)
+- the cycle is **not** EXTENDED
+
+Actions, in precedence order:
+
+| Condition | Action |
+|---|---|
+| Weekly BROKEN | **EXIT** |
+| Daily CORRECTION + weekly-discounted | **STAGED BID** |
+| Daily CORRECTION | **HOLD RUNNER** |
+| EXTENDED, position already trimmed | **HOLD** (missed it — do not chase, do not trim again) |
+| EXTENDED, position full | **TRIM** |
+| Reclaim conditions above | **RE-ENTER** |
+| DISCOUNTED + weekly UP + daily UP | **RELOAD** |
+| else | **HOLD** |
+
+EXTENDED deliberately outranks RE-ENTER: extension is where the swing sleeve is
+sold, so buying it back there is chasing.
 
 These are labels, not orders. No auto-size, no broker sync.
 
@@ -321,7 +443,12 @@ Please grade against **intent**, not against a Bloomberg terminal.
 - Effective leverage on screen is `notional/margin`. If the user typed target 10x or under-margined a 2x thesis, the card will show ~10x+ — that is the ledger, not a bug in the weekly detector.
 - ENA can be “weekly UP” on a local breakout while still far below a 52-week high. That is **this leg**, not “macro ATH bull.”
 - Actions (TRIM/EXIT) are heuristic; they will be wrong in chop.
-- No tests. Logic lives in `book.html` as functions: `fold`, `sizeFromInputs`, `structure`, `regimeFromOhlc`.
+- The regime rule beats buy-and-hold over 8.7 years but LOSES in one of the two sample halves, and the best MA length flips between halves. It is the single most important rule in the book and its exact setting is inside the noise.
+- A marginal MA break reads identically to a decisive one, because buffers tested worse.
+- `EXTENDED_Z` is unvalidated. It is a reasonable dial, not a backtested edge, and it fires very unevenly across coins (see above). Treat TRIM as a prompt to look, not a number to trust.
+- RE-ENTER buys strength. The two-close guard blocks same-day reversals but not a two-day fakeout. In chop it will be wrong.
+- Stretch uses `SMA50` of daily **closes**, so it inherits the close-only weakness above. It needs 80 daily bars; below that `stretchZ` returns null and the cycle stays MID.
+- Tests cover the pure logic only (`fold`, `sizeFromInputs`, `structure`, `stretchZ`, `regimeFromOhlc`, `actionFor`). Nothing covers the DOM, the sync layer, or the PHP.
 
 ---
 
@@ -339,6 +466,9 @@ Please grade against **intent**, not against a Bloomberg terminal.
 ## Quick sanity commands
 
 ```bash
+# Book logic (pure functions, extracted live from book.html -- no deps)
+node test/book.test.mjs
+
 # Gecko key is working
 curl -sS 'https://aramt.com/alphax-scanner/api.php?path=simple/price&ids=hyperliquid,ethena&vs_currencies=usd'
 

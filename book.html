@@ -69,6 +69,23 @@
   .stat { background: #0f151c; border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
   .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
   .stat .v { margin-top: 4px; font-size: 16px; font-weight: 650; }
+  /* Simple view: compact tiles in a grid, so the whole book fits on one screen. */
+  body.simple-mode .toolbar.adv { display: none; }
+  .wrap.simple { display: grid; grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); gap: 10px; }
+  .mini {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 8px;
+  }
+  .mini:hover { border-color: #33455c; }
+  .mini-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .mini-sym { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+  .mini-px { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .mini-act { font-size: 12px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+  .mini-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .mini-row b { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .mini-bar { height: 3px; border-radius: 2px; background: #2a3340; overflow: hidden; }
+  .mini-bar i { display: block; height: 100%; }
+  @media (max-width: 560px) { .wrap.simple { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
   .up { color: var(--up); }
   .down { color: var(--down); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -96,11 +113,12 @@
   <h1>HTF Book</h1>
   <p class="sub">
     Weekly is the bull. Daily is the swing. Log entries, trims, reloads, and extra margin.
-    Runner stays until the weekly higher-low breaks. Stables are dry powder, not FOMO.
+    Regime breaks on two weekly closes under the 100 DMA — not on daily noise. Stables come
+    from trimming strength, not from selling weakness.
   </p>
 </header>
 
-<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr auto auto;">
+<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr auto auto auto;">
   <div>
     <label>Stables / dry powder ($)</label>
     <input id="stables" type="number" step="1" value="0" />
@@ -117,10 +135,11 @@
     <label>Leverage</label>
     <input id="newLev" type="number" value="2" min="1" step="0.1" />
   </div>
+  <button class="secondary" id="viewBtn">Simple view</button>
   <button class="secondary" id="refreshBtn">Refresh markets</button>
   <button class="secondary" id="exportBtn">Backup</button>
 </div>
-<div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto; padding-top: 0;">
+<div class="toolbar adv" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto; padding-top: 0;">
   <div>
     <label>Entry price</label>
     <input id="newPx" type="number" step="any" placeholder="0.25" />
@@ -146,10 +165,10 @@
   </div>
   <button id="addBtn">Add coin</button>
 </div>
-<div class="toolbar" style="grid-template-columns: 1fr; padding-top: 0;">
+<div class="toolbar adv" style="grid-template-columns: 1fr; padding-top: 0;">
   <div class="status" id="newHint" style="padding: 0;">Leave qty blank: $2,000 margin at 2x at $0.25 → 16,000 coins, $4,000 notional.</div>
 </div>
-<div class="toolbar" style="grid-template-columns: 2fr auto auto auto; padding-top: 0;">
+<div class="toolbar adv" style="grid-template-columns: 2fr auto auto auto; padding-top: 0;">
   <div>
     <label>Sync phrase (same on phone + laptop)</label>
     <input id="syncPhrase" type="password" placeholder="pick a long phrase you will remember" autocomplete="off" />
@@ -158,7 +177,7 @@
   <button class="secondary tiny" id="importBtn">Import backup</button>
   <input id="importFile" type="file" accept="application/json" hidden />
 </div>
-<div class="toolbar" style="grid-template-columns: 1fr; padding-top: 0;">
+<div class="toolbar adv" style="grid-template-columns: 1fr; padding-top: 0;">
   <div class="status" id="status" style="padding: 8px 0;">Set a sync phrase so the book survives closing the browser and works on your phone.</div>
 </div>
 <div class="wrap" id="cards"></div>
@@ -171,8 +190,36 @@
 <script>
 const PROXY = "https://aramt.com/alphax-scanner/api.php";
 const BOOK_API = "https://aramt.com/alphax-scanner/book-store.php";
+// How far above its own 50d mean a coin must be, in standard deviations of its
+// own last-year stretch, before the book calls it EXTENDED and says TRIM.
+// This is a judgment dial, not a discovered constant. Measured on real daily
+// closes it fires on roughly 14-28% of weekly-UP + daily-UP days for HYPE,
+// PENDLE and BTC, but ~0% for RENDER and ~87% for ENA, so it does not behave
+// uniformly across coins. Raise it to trim less, lower it to trim more.
+const EXTENDED_Z = 2.0;
+// Regime = "is the high-timeframe trend still alive". The old rule (close under
+// the last confirmed weekly swing low) whipsawed on 18 of its 18 exits -- a
+// noise generator, not a regime gate. Testing an MA cross only on WEEKLY
+// closes, and requiring two in a row, is what removed the whipsaw.
+//
+// The LENGTH was first set to 200 on whipsaw count over a 5-month bull sample.
+// That was wrong. Walk-forward on 8.7 years of real OKX daily OHLC (BTC, ETH,
+// SOL, LINK, AVAX, DOGE -- through the 2021 top and the 2022 bear), 200 DMA
+// returned 20% LESS than buy-and-hold, and every faster setting beat it. The
+// 100-140 region was positive; 160+ was negative. Faster is better here, and
+// minimising whipsaws turned out to be a bad proxy for making money.
+//
+// Honest limits: the filter LOST to buy-and-hold over 2018-2021 (-28%) and WON
+// over 2022-2026 (+102%), and the best length flips between those halves (100
+// vs 140). The sweep is jagged -- adjacent lengths swing by 60+ points -- so
+// the exact number is substantially luck. 100 is picked because it wins the
+// full sample and the weaker half and is never catastrophic, not because it is
+// optimal. Treat TRIM/EXIT as a prompt to look, never as a number to trust.
+const REGIME_MA = 100;
+const REGIME_WEEKS = 2;
 const STORE = "htf-book-v1";
 const SYNC_STORE = "htf-book-sync-hash";
+const VIEW_STORE = "htf-book-view";
 const PRESETS = [
   ["HYPE","hyperliquid"],["RENDER","render-token"],["ENA","ethena"],
   ["PENDLE","pendle"],["PUMP","pump-fun"],["LIT","lighter"],["XPL","plasma"],
@@ -247,6 +294,9 @@ let state = load();
 let marks = {};
 let regimes = {};
 let syncKey = localStorage.getItem(SYNC_STORE) || "";
+// Per-viewer display preference only: safe to lose, never synced to the server.
+let simpleView = false;
+try { simpleView = localStorage.getItem(VIEW_STORE) === "1"; } catch {}
 let pushTimer = null;
 
 async function hashPhrase(phrase) {
@@ -333,27 +383,29 @@ async function getJson(url) {
 
 function fold(events) {
   const list = (events || []).slice().sort((a,b) => a.ts - b.ts);
-  let qty = 0, avg = 0, realized = 0, margin = 0;
+  let qty = 0, avg = 0, realized = 0, margin = 0, peakQty = 0, lastSell = null;
   for (const e of list) {
     if (e.type === "buy") {
       const q = Number(e.qty), p = Number(e.price);
       if (!(q > 0) || !(p > 0)) continue;
       avg = qty + q > 0 ? (avg * qty + p * q) / (qty + q) : p;
       qty += q;
+      if (qty > peakQty) peakQty = qty;
     } else if (e.type === "sell") {
       const q = Number(e.qty), p = Number(e.price);
       if (!(q > 0) || !(p > 0)) continue;
       const sold = Math.min(q, qty);
       realized += (p - avg) * sold;
       qty -= sold;
-      if (qty <= 1e-12) { qty = 0; avg = 0; }
+      if (sold > 0) lastSell = p;
+      if (qty <= 1e-12) { qty = 0; avg = 0; peakQty = 0; lastSell = null; }
     } else if (e.type === "margin_in") {
       margin += Number(e.usd) || 0;
     } else if (e.type === "margin_out") {
       margin -= Number(e.usd) || 0;
     }
   }
-  return { qty, avg, realized, margin };
+  return { qty, avg, realized, margin, peakQty, lastSell };
 }
 
 function bucketBars(bars, keyFn) {
@@ -427,12 +479,62 @@ function structure(bars, left, right) {
       low: lastL.px,
       r382: liveHigh - range * 0.382,
       r50: liveHigh - range * 0.5,
-      r618: liveHigh - range * 0.618,
-      e127: lastL.px + range * 1.272,
-      e162: lastL.px + range * 1.618
+      r618: liveHigh - range * 0.618
     };
   }
   return { state, lastH, lastL, prevH, prevL, close, fib, broke: !!lostLow, tookHigh };
+}
+
+// How far price sits above its own slow mean, scored against this coin's own
+// last year so a quiet major and a volatile alt are each judged against
+// themselves. Replaces the old EXTENDED test, which was broken twice over:
+// `close >= e127` could never fire (e127 was projected off liveHigh, and
+// liveHigh includes close, so e127 > close always), and the surviving
+// `close >= high * 0.985` was true at ANY new high -- so every breakout read as
+// EXTENDED and the book said TRIM into strength.
+//
+// Measuring off the "last impulse" does not work either: after a consolidation
+// the last confirmed pivot pair IS the consolidation, so 1.272 of a chop range
+// is a meaningless threshold. A percentile rank does not work either -- it
+// saturates, and on real data it fired on 2% of RENDER days and 93% of ENA
+// days at the same setting. A z-score at least scales with magnitude instead of
+// ordering, but see EXTENDED_Z: the threshold is still a judgment call.
+function stretchZ(bars, win) {
+  const n = win || 50;
+  if (!bars || bars.length < n + 30) return null;
+  const vals = [];
+  let sum = 0;
+  for (let i = 0; i < bars.length; i++) {
+    sum += bars[i].c;
+    if (i >= n) sum -= bars[i - n].c;
+    if (i >= n - 1) vals.push(bars[i].c / (sum / n) - 1);
+  }
+  const now = vals[vals.length - 1];
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
+  return { now, z: sd > 0 ? (now - mean) / sd : 0 };
+}
+
+// BULL until two consecutive weekly closes land under the 200 DMA; back to BULL
+// on the first weekly close above it. THIN when there is not enough history to
+// judge -- that is reported as its own state rather than being quietly folded
+// into a bearish-looking label.
+function trendRegime(bars, maLen, weeks) {
+  const n = maLen || REGIME_MA;
+  const need = weeks || REGIME_WEEKS;
+  if (!bars || bars.length < n + 7) return { state: "THIN", ma: null };
+  let sum = 0, run = 0, broken = false, ma = null;
+  for (let i = 0; i < bars.length; i++) {
+    sum += bars[i].c;
+    if (i >= n) sum -= bars[i - n].c;
+    if (i < n - 1) continue;
+    ma = sum / n;
+    // A weekly close is a Sunday bar, plus the live partial week's latest bar.
+    if (i !== bars.length - 1 && new Date(bars[i].t).getUTCDay() !== 0) continue;
+    if (bars[i].c < ma) { run++; if (run >= need) broken = true; }
+    else { run = 0; broken = false; }
+  }
+  return { state: broken ? "BROKEN" : "BULL", ma };
 }
 
 function daysSince(t) {
@@ -449,15 +551,14 @@ function regimeFromOhlc(dailyRaw, fourHour) {
   from4h.forEach(b => byDay.set(new Date(b.t).toISOString().slice(0,10), b));
   const daily = [...byDay.values()].sort((a,b) => a.t - b.t);
   const weekly = toWeekly(fromCloses.length ? fromCloses : daily);
-  const w = structure(weekly, 1, 1);
+  const w = structure(weekly, 1, 1);   // kept for the weekly fib box only
   const d = structure(daily, 2, 2);
-  let weeklyState = "WEAK";
-  if (w.state === "BROKEN") weeklyState = "BROKEN";
-  else if (w.state === "UP") weeklyState = "UP";
+  const reg = trendRegime(daily);
+  const weeklyState = reg.state;      // BULL | BROKEN | THIN
 
   let dailyState = d.state;
   let correctionDays = 0;
-  if (weeklyState === "UP" && (d.state === "DOWN" || d.state === "BROKEN")) {
+  if (weeklyState === "BULL" && (d.state === "DOWN" || d.state === "BROKEN")) {
     dailyState = "CORRECTION";
     const start = (d.lastH && d.lastH.t) || (daily[Math.max(0, daily.length-10)].t);
     correctionDays = daysSince(start);
@@ -467,25 +568,53 @@ function regimeFromOhlc(dailyRaw, fourHour) {
 
   let cycle = "MID";
   const close = daily.length ? daily[daily.length-1].c : null;
-  const useFib = weeklyState === "UP" && dailyState === "CORRECTION" ? w.fib : d.fib;
-  if (close && d.fib && dailyState === "UP") {
-    if (close >= d.fib.e127 || close >= d.fib.high * 0.985) cycle = "EXTENDED";
-    else if (close <= d.fib.r382 && close >= d.fib.r618) cycle = "DISCOUNTED";
+  const stretch = stretchZ(daily, 50);
+  if (close && dailyState === "UP") {
+    if (stretch && stretch.now > 0 && stretch.z >= EXTENDED_Z) cycle = "EXTENDED";
+    else if (d.fib && close <= d.fib.r382 && close >= d.fib.r618) cycle = "DISCOUNTED";
   }
   if (close && w.fib && dailyState === "CORRECTION") {
     if (close <= w.fib.r382 && close >= w.fib.r618) cycle = "DISCOUNTED";
     else cycle = "MID";
   }
 
-  let action = "HOLD";
-  if (weeklyState === "BROKEN") action = "EXIT";
-  else if (dailyState === "CORRECTION" && cycle === "DISCOUNTED") action = "STAGED BID";
-  else if (dailyState === "CORRECTION") action = "HOLD RUNNER";
-  else if (cycle === "EXTENDED") action = "TRIM";
-  else if (cycle === "DISCOUNTED" && weeklyState === "UP" && dailyState === "UP") action = "RELOAD";
-  else action = "HOLD";
+  const closes2 = daily.slice(-2).map(b => b.c);
+  return { weeklyState, dailyState, cycle, correctionDays, weekly: w, daily: d, close, closes2, stretch, ma: reg.ma };
+}
 
-  return { weeklyState, dailyState, cycle, action, correctionDays, weekly: w, daily: d, close };
+// Action depends on the LEDGER, not just price, so it is derived at render time
+// from the cached regime. Logging a fill changes the action immediately instead
+// of waiting for the next market refresh.
+//
+// A trim had no invalidation level before this: once sold, the swing sleeve
+// could only be bought back on a retrace to 0.382-0.618. If price never came
+// back and instead broke out, the book said TRIM again and you ratcheted out of
+// your best name. RE-ENTER is that missing invalidation.
+function actionFor(r, ps) {
+  if (!r) return null;
+  const trimmed = !!(ps && ps.qty > 0 && ps.peakQty > 0 && ps.qty < ps.peakQty * 0.995);
+  // Breakout re-entry needs BOTH a structural break (tookHigh) and the trim
+  // itself being wrong (back above where we sold), plus two consecutive closes
+  // so a single reclaim wick that reverses same day does not trigger it.
+  const reclaim = trimmed
+    && ps.lastSell != null
+    && r.weeklyState === "BULL"
+    && r.dailyState === "UP"
+    && !!(r.daily && r.daily.tookHigh)
+    && (r.closes2 || []).length === 2
+    && r.closes2.every(c => c > ps.lastSell);
+
+  if (r.weeklyState === "BROKEN") return "EXIT";
+  if (r.weeklyState === "THIN") return "HOLD";
+  if (r.dailyState === "CORRECTION") return r.cycle === "DISCOUNTED" ? "STAGED BID" : "HOLD RUNNER";
+  // EXTENDED outranks re-entry on purpose. Extension is where the swing sleeve
+  // is sold, so buying it back there is chasing. A trimmed position that has
+  // already run away is left at HOLD: do not chase it, but do not trim again
+  // either -- trimming an already-trimmed position was the original bug.
+  if (r.cycle === "EXTENDED") return trimmed ? "HOLD" : "TRIM";
+  if (reclaim) return "RE-ENTER";
+  if (r.cycle === "DISCOUNTED" && r.weeklyState === "BULL" && r.dailyState === "UP") return "RELOAD";
+  return "HOLD";
 }
 
 function metrics(pos) {
@@ -505,9 +634,48 @@ function pill(text, kind) {
   return `<span class="pill ${kind || ""}">${text}</span>`;
 }
 
+const ACTION_COLOR = {
+  "EXIT": "var(--down)", "TRIM": "var(--warn)",
+  "RELOAD": "var(--accent)", "STAGED BID": "var(--accent)", "RE-ENTER": "var(--accent)"
+};
+
+// Compact tile: symbol, mark, the decision, regime, PnL, and how close the coin
+// is to the TRIM threshold. Everything else lives in the detailed card.
+function miniCard(pos) {
+  const m = metrics(pos);
+  const r = regimes[pos.geckoId];
+  const action = actionFor(r, m) || "—";
+  const col = ACTION_COLOR[action] || "var(--muted)";
+  const z = r?.stretch?.z;
+  const frac = z != null ? Math.max(0, Math.min(1, z / EXTENDED_Z)) : 0;
+  const regTxt = r ? r.weeklyState : "—";
+  const regCol = r?.weeklyState === "BROKEN" ? "var(--down)"
+    : r?.weeklyState === "BULL" ? "var(--accent)" : "var(--muted)";
+  return `<article class="mini" data-jump="${pos.id}">
+    <div class="mini-top">
+      <span class="mini-sym">${pos.symbol}</span>
+      <span class="mini-px">${fmtPx(m.mark)}</span>
+    </div>
+    <div class="mini-act" style="color:${col}">${action}</div>
+    <div class="mini-row">
+      <span style="color:${regCol}">${regTxt}</span>
+      <b class="${clsPnL(m.chg)}">${fmtPct(m.chg)}</b>
+    </div>
+    <div class="mini-row"><span>${m.qty ? "PnL" : "watching"}</span><b class="${clsPnL(m.total)}">${m.qty ? fmtUsd(m.total, 0) : ""}</b></div>
+    <div class="mini-bar" title="stretch toward the TRIM threshold"><i style="width:${(100*frac).toFixed(0)}%;background:${frac >= 1 ? "var(--warn)" : "var(--accent)"}"></i></div>
+  </article>`;
+}
+
 function render() {
   $("stables").value = state.stables ?? 0;
   const el = $("cards");
+  el.className = "wrap" + (simpleView && state.positions.length ? " simple" : "");
+  document.body.classList.toggle("simple-mode", simpleView && state.positions.length > 0);
+  $("viewBtn").textContent = simpleView ? "Detailed view" : "Simple view";
+  if (simpleView && state.positions.length) {
+    el.innerHTML = state.positions.map(miniCard).join("");
+    return;
+  }
   if (!state.positions.length) {
     el.innerHTML = `<div class="empty">No coins yet. Add HYPE / RENDER / ENA (or any CoinGecko id), then log the fill.</div>`;
     return;
@@ -515,11 +683,13 @@ function render() {
   el.innerHTML = state.positions.map(pos => {
     const m = metrics(pos);
     const r = regimes[pos.geckoId];
-    const wKind = r?.weeklyState === "UP" ? "" : r?.weeklyState === "BROKEN" ? "down" : "warn";
-    const aKind = r?.action === "EXIT" || r?.action === "TRIM" ? (r.action === "EXIT" ? "down" : "warn")
-      : r?.action === "RELOAD" || r?.action === "STAGED BID" ? "" : "mid";
-    const weeklyHL = r?.weekly?.lastL?.px;
-    const hlDist = m.mark && weeklyHL ? 100 * (m.mark - weeklyHL) / m.mark : null;
+    const action = actionFor(r, m);
+    const wKind = r?.weeklyState === "BULL" ? "" : r?.weeklyState === "BROKEN" ? "down" : "mid";
+    const aKind = action === "EXIT" ? "down" : action === "TRIM" ? "warn"
+      : action === "RELOAD" || action === "STAGED BID" || action === "RE-ENTER" ? "" : "mid";
+    // The 200 DMA is the actual invalidation level now, so that is what the card shows.
+    const ma = r?.ma;
+    const maDist = m.mark && ma ? 100 * (m.mark - ma) / m.mark : null;
     const liqDist = m.mark && m.liq ? 100 * (m.mark - m.liq) / m.mark : null;
     const events = (pos.events || []).slice().sort((a,b) => b.ts - a.ts);
     return `<article class="card" data-id="${pos.id}">
@@ -532,7 +702,7 @@ function render() {
           ${r ? pill("Weekly " + r.weeklyState, wKind) : pill("Weekly —", "mid")}
           ${r ? pill("Daily " + r.dailyState + (r.dailyState==="CORRECTION" ? " d"+r.correctionDays : ""), r.dailyState==="CORRECTION" ? "warn" : "mid") : ""}
           ${r ? pill(r.cycle, r.cycle==="EXTENDED" ? "warn" : r.cycle==="DISCOUNTED" ? "" : "mid") : ""}
-          ${r ? pill(r.action, aKind) : pill("Load markets", "mid")}
+          ${action ? pill(action, aKind) : pill("Load markets", "mid")}
         </div>
       </div>
       <div class="grid">
@@ -546,8 +716,9 @@ function render() {
         <div class="stat"><div class="k">Margin in</div><div class="v">${fmtUsd(m.margin,0)}</div></div>
         <div class="stat"><div class="k">Eff. lev</div><div class="v">${m.lev && isFinite(m.lev) ? m.lev.toFixed(2)+"x" : "—"}</div></div>
         <div class="stat"><div class="k">Est. liq</div><div class="v">${fmtPx(m.liq)} <span style="font-size:12px;color:var(--muted)">${liqDist!=null ? liqDist.toFixed(0)+"% away" : ""}</span></div></div>
-        <div class="stat"><div class="k">Weekly HL</div><div class="v">${fmtPx(weeklyHL)} <span style="font-size:12px;color:var(--muted)">${hlDist!=null ? hlDist.toFixed(0)+"% away" : ""}</span></div></div>
+        <div class="stat"><div class="k">100 DMA (regime)</div><div class="v">${fmtPx(ma)} <span style="font-size:12px;color:var(--muted)">${maDist!=null ? maDist.toFixed(0)+"% above" : ""}</span></div></div>
         <div class="stat"><div class="k">Weekly 0.5</div><div class="v">${fmtPx(r?.weekly?.fib?.r50)}</div></div>
+        <div class="stat"><div class="k">Stretch vs 50d</div><div class="v">${r?.stretch ? fmtPct(100*r.stretch.now) : "—"} <span style="font-size:12px;color:var(--muted)">${r?.stretch ? "z " + r.stretch.z.toFixed(2) + " / " + EXTENDED_Z : ""}</span></div></div>
       </div>
       <div class="actions">
         <button class="tiny" data-act="buy">Buy / add</button>
@@ -795,6 +966,24 @@ $("syncBtn").addEventListener("click", async () => {
   $("syncPhrase").placeholder = "unlocked on this device";
   await bootSync();
   if (state.positions.length) refreshAll();
+});
+
+$("viewBtn").addEventListener("click", () => {
+  simpleView = !simpleView;
+  try { localStorage.setItem(VIEW_STORE, simpleView ? "1" : "0"); } catch {}
+  render();
+});
+
+// Clicking a tile drops back into the detailed card for that coin, so the
+// simple view stays a snapshot and never becomes a place you trade from.
+$("cards").addEventListener("click", (e) => {
+  const tile = e.target.closest("[data-jump]");
+  if (!tile || !simpleView) return;
+  simpleView = false;
+  try { localStorage.setItem(VIEW_STORE, "0"); } catch {}
+  render();
+  const card = document.querySelector(`[data-id="${tile.dataset.jump}"]`);
+  if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 
 $("refreshBtn").addEventListener("click", refreshAll);
