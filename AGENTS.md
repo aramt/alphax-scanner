@@ -320,8 +320,33 @@ is equal weight and on recent evidence costs you almost nothing.
 - `ALLOC_TILT` dials the tilt: 1 is what was tested, 0 is equal weight across
   BULL coins.
 
-Shown as **suggestions** — "add $5,050", "trim $2,983", "at size" — never as
-orders, and never auto-applied.
+Shown as **suggestions** — never as orders, and never auto-applied.
+
+### Coach: what to do next (the actual product)
+
+The book is supposed to tell a trader trying to ride a bull toward **$500k**
+what to consider next, in English, with a number.
+
+`HOUSE_LEV` defaults to **2×** (editable as "House lev" on the book). Effective
+leverage above `HOUSE_LEV * 1.25` (so 2.5×+) is **DE-LEVER**: add margin from
+stables to sit at house leverage. That outranks TRIM and any add. A 15% isolated
+dip at 10× is how you fail a six-month bull, not by missing a pico top.
+
+Precedence (also in `actionFor`):
+
+| Priority | Action | Means |
+|---|---|---|
+| 1 | **EXIT** | Consider selling everything in this name. Two Sunday closes under 100 DMA. |
+| 2 | **DE-LEVER** | Consider adding margin. Do this before buying more coins. |
+| 3 | **TRIM** | Consider selling ~30% of coins into stretch. Keep a runner. |
+| 4 | **RE-ENTER** | Consider buying back the sleeve after a real reclaim. |
+| 5 | **RELOAD / STAGED BID** | Consider buying more — only on a discount or a ≥5% dip. |
+| 6 | **HOLD RUNNER** | Sit. Do not sell weakness. |
+| 7 | **HOLD** | No edge. Wait. |
+
+The top **coach** bar states: current equity, multiple still needed to $500k,
+then the first move (sell / de-lever / trim / buy). Each card has a
+"Consider …" paragraph. $500k is a scoreboard, not a forecast.
 
 ### Open interest: tested on 4 years, adds nothing
 
@@ -539,6 +564,7 @@ Actions, in precedence order:
 | Condition | Action |
 |---|---|
 | Weekly BROKEN | **EXIT** |
+| Effective lev > house × 1.25 | **DE-LEVER** |
 | Daily CORRECTION + weekly-discounted + **≥5% below the starting swing high** | **STAGED BID** |
 | Daily CORRECTION (otherwise) | **HOLD RUNNER** |
 | EXTENDED, position already trimmed | **HOLD** (missed it — do not chase, do not trim again) |
@@ -600,7 +626,8 @@ Please grade against **intent**, not against a Bloomberg terminal.
 - Stretch uses `SMA50` of daily **closes**, so it inherits the close-only weakness above. It needs 80 daily bars; below that `stretchZ` returns null and the cycle stays MID.
 - Suggested sizing ranks on a factor tested over six established coins; it will over-weight a hot new listing. See above.
 - Funding is a flat estimated rate, not the venue's actual per-period rate. See above.
-- Tests cover the pure logic only (`fold`, `sizeFromInputs`, `structure`, `stretchZ`, `regimeFromOhlc`, `actionFor`). Nothing covers the DOM, the sync layer, or the PHP.
+- Tests cover the pure logic only (`fold`, `sizeFromInputs`, `structure`, `stretchZ`, `regimeFromOhlc`, `actionFor`, `consider`). Nothing covers the DOM, the sync layer, or the PHP.
+- Getting to $500k from a ~$40k book is roughly 11×. The tool will not print a path that is actually a 10× gamble on LIT. De-lever is the feature. The multiple is honest, not motivational.
 
 ---
 

@@ -28,11 +28,10 @@ function grab(name) {
 }
 
 const NAMES = ["fold", "sizeFromInputs", "bucketBars", "toDaily", "toWeekly",
-               "swings", "structure", "stretchZ", "trendRegime", "fundingCost", "allocTargets", "daysSince", "regimeFromOhlc", "actionFor"];
-// The EXTENDED threshold is a top-level const, not a function.
-const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const MAX_WEIGHT = [\d.]+;/)[0];
-const { fold, sizeFromInputs, structure, stretchZ, trendRegime, fundingCost, allocTargets, regimeFromOhlc, actionFor } =
-  new Function(CONSTS + "\n" + NAMES.map(grab).join("\n") + `\nreturn {${NAMES.join(",")}};`)();
+               "swings", "structure", "stretchZ", "trendRegime", "fundingCost", "allocTargets", "daysSince", "regimeFromOhlc", "actionFor", "marginToHouse", "consider"];
+const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const GOAL_USD = [\d.]+;/)[0];
+const { fold, sizeFromInputs, structure, stretchZ, trendRegime, fundingCost, allocTargets, regimeFromOhlc, actionFor, marginToHouse, consider } =
+  new Function("const fmtUsd = (n) => n == null ? '—' : '$' + Math.round(Number(n));\n" + CONSTS + "\n" + NAMES.map(grab).join("\n") + `\nreturn {${NAMES.join(",")}};`)();
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = "") => {
@@ -254,6 +253,32 @@ group("Regime gate (100 DMA, two completed Sunday closes)");
   ok("THIN emits no trade action",
      actionFor({ weeklyState: "THIN", dailyState: "UP", cycle: "EXTENDED", closes2: [1, 2], daily: {} },
                { qty: 100, peakQty: 100, lastSell: null }) === "HOLD");
+}
+
+group("House leverage (de-lever before anything else)");
+{
+  const bull = { weeklyState: "BULL", dailyState: "UP", cycle: "MID", closes2: [1, 2], daily: { tookHigh: false } };
+  const hot = { ...bull, cycle: "EXTENDED" };
+  ok("10x on a BULL name is DE-LEVER, not HOLD",
+     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 10, houseLev: 2 }) === "DE-LEVER");
+  ok("10x plus stretch is still DE-LEVER, not TRIM (survive first)",
+     actionFor(hot, { qty: 100, peakQty: 100, lastSell: null, lev: 10, houseLev: 2 }) === "DE-LEVER");
+  ok("2x is not nagged",
+     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 2, houseLev: 2 }) === "HOLD");
+  ok("2.4x is inside slack",
+     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 2.4, houseLev: 2 }) === "HOLD");
+  ok("2.6x is DE-LEVER",
+     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 2.6, houseLev: 2 }) === "DE-LEVER");
+  ok("weekly BROKEN still EXIT even at 10x",
+     actionFor({ ...bull, weeklyState: "BROKEN" }, { qty: 100, peakQty: 100, lastSell: null, lev: 10, houseLev: 2 }) === "EXIT");
+  ok("tests without lev still get the old action (no false DE-LEVER)",
+     actionFor(hot, { qty: 100, peakQty: 100, lastSell: null }) === "TRIM");
+  ok("$12,600 notional at 2x needs $5,300 more margin on $1,000",
+     Math.abs(marginToHouse(12600, 1000, 2) - 5300) < 1e-9);
+  ok("consider() speaks in trader English",
+     consider("DE-LEVER", { symbol: "LIT", lev: 10, houseLev: 2, marginNeed: 5000, liqPct: 11 }).headline === "Consider de-levering LIT");
+  ok("EXIT copy is sell everything",
+     consider("EXIT", { symbol: "PUMP" }).headline === "Consider selling everything in PUMP");
 }
 
 group("Funding accrual");

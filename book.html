@@ -49,6 +49,16 @@
   button.danger { background: #3a1c24; color: var(--down); }
   button.tiny { width: auto; padding: 6px 10px; margin: 0; font-size: 12px; }
   .status { max-width: 1280px; margin: 0 auto; padding: 4px 24px 12px; color: var(--muted); min-height: 28px; }
+  .coach {
+    max-width: 1280px; margin: 0 auto 8px; padding: 12px 16px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    color: var(--text); font-size: 14px; line-height: 1.5;
+  }
+  .coach b { color: var(--accent); }
+  .coach .bad { color: var(--down); font-weight: 700; }
+  .coach .hot { color: var(--warn); font-weight: 700; }
+  .consider { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #0f151c; border: 1px solid var(--line); font-size: 13px; line-height: 1.45; }
+  .consider strong { display: block; margin-bottom: 4px; }
   .wrap { max-width: 1280px; margin: 0 auto 40px; padding: 0 24px; }
   .card {
     background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
@@ -88,6 +98,7 @@
   @media (max-width: 560px) { .wrap.simple { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
   .up { color: var(--up); }
   .down { color: var(--down); }
+  .hot { color: var(--warn); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   details { margin-top: 10px; }
   summary { cursor: pointer; color: var(--muted); font-size: 12px; }
@@ -112,9 +123,9 @@
   </nav>
   <h1>HTF Book</h1>
   <p class="sub">
-    Weekly is the bull. Daily is the swing. Log entries, trims, reloads, and extra margin.
-    Regime breaks on two weekly closes under the 100 DMA — not on daily noise. Stables come
-    from trimming strength, not from selling weakness.
+    Coach for a six-month bull: survive first (house 2x), trim into stretch, add only on
+    real discounts, flatten only when weekly 100 DMA is lost. Labels are what to consider,
+    not orders.
   </p>
 </header>
 
@@ -136,7 +147,11 @@
     <input id="customId" placeholder="render-token" />
   </div>
   <div>
-    <label>Leverage</label>
+    <label>House lev (playbook)</label>
+    <input id="houseLev" type="number" value="2" min="1" step="0.1" />
+  </div>
+  <div>
+    <label>New-coin leverage</label>
     <input id="newLev" type="number" value="2" min="1" step="0.1" />
   </div>
   <button class="secondary" id="viewBtn">Simple view</button>
@@ -184,13 +199,14 @@
 <div class="toolbar adv" style="grid-template-columns: 1fr; padding-top: 0;">
   <div class="status" id="status" style="padding: 8px 0;">Set a sync phrase so the book survives closing the browser and works on your phone.</div>
 </div>
-<div class="status" id="allocBar" style="padding-bottom:10px"></div>
+<div class="wrap" style="padding-bottom:0"><div class="coach" id="coachBar"></div></div>
 <div class="wrap" id="cards"></div>
 <p class="note">
   Average entry is the live bag: sells lock realized PnL and leave remaining coins at the old average; buys blend a new average.
   Extra margin does not change entry — it lowers effective leverage and moves estimated liquidation down.
   Sync phrase stores the book on aramt.com (not in the URL, not in git). Same phrase on your phone loads the same book.
-  Export is still a local backup. Last save wins if two devices edit at once. Not a broker, not a signal.
+  House leverage (default 2×) is the six-month playbook: over that, the book says de-lever before it says buy more.
+  Path to $500k is shown as a multiple of current equity — it is a scoreboard, not a promise. Not a broker, not an order.
 </p>
 <script>
 const PROXY = "https://aramt.com/alphax-scanner/api.php";
@@ -256,6 +272,13 @@ const DYNAMIC_CASH = true;
 // the test basket, but a two-coin book would hand the leader 67%. A 33% cap was
 // non-binding in the test (identical results) and bounds that case.
 const MAX_WEIGHT = 0.33;
+// House leverage for a six-month bull hold. The card's "target 10x" is what
+// was typed at entry; this is the playbook. Above HOUSE_LEV * LEV_SLACK the
+// first suggestion is de-lever (add margin from stables), before any add/trim
+// of coins. A 15% isolated dip at 10x is how you fail the bull.
+const HOUSE_LEV = 2;
+const LEV_SLACK = 1.25;
+const GOAL_USD = 500000;
 const STORE = "htf-book-v1";
 const SYNC_STORE = "htf-book-sync-hash";
 const VIEW_STORE = "htf-book-view";
@@ -317,7 +340,7 @@ function fmtCoins(n) {
 }
 
 function emptyBook() {
-  return { stables: 0, fundingApr: FUNDING_APR_DEFAULT, positions: [], updated_at: 0 };
+  return { stables: 0, fundingApr: FUNDING_APR_DEFAULT, houseLev: HOUSE_LEV, positions: [], updated_at: 0 };
 }
 function load() {
   try { return JSON.parse(localStorage.getItem(STORE)) || emptyBook(); }
@@ -646,6 +669,8 @@ function actionFor(r, ps) {
 
   if (r.weeklyState === "BROKEN") return "EXIT";
   if (r.weeklyState === "THIN") return "HOLD";
+  const house = (ps && ps.houseLev) || HOUSE_LEV;
+  if (ps && ps.qty > 0 && ps.lev != null && isFinite(ps.lev) && ps.lev > house * LEV_SLACK) return "DE-LEVER";
   if (r.dailyState === "CORRECTION") {
     // CORRECTION labels are usually chop, not a dip (median depth 0% in sample).
     // Only bid if it is actually down 5%+ from the swing high that started it.
@@ -749,15 +774,73 @@ function pill(text, kind) {
 }
 
 const ACTION_COLOR = {
-  "EXIT": "var(--down)", "TRIM": "var(--warn)",
+  "EXIT": "var(--down)", "TRIM": "var(--warn)", "DE-LEVER": "var(--warn)",
   "RELOAD": "var(--accent)", "STAGED BID": "var(--accent)", "RE-ENTER": "var(--accent)"
 };
 
-// Compact tile: symbol, mark, the decision, regime, PnL, and how close the coin
-// is to the TRIM threshold. Everything else lives in the detailed card.
-// Framed as a suggestion, never an order: these are heuristics that will be
-// wrong in chop, and the ranking rests on 6 coins.
-function suggestText(a) {
+function marginToHouse(notional, margin, house) {
+  if (!(notional > 0) || !(house > 0)) return 0;
+  return Math.max(0, notional / house - (margin || 0));
+}
+
+// Plain-language "consider …" line. This is the product: what a trader
+// protecting a six-month bull would do next, not a regime label.
+function consider(action, ctx) {
+  const name = (ctx && ctx.symbol) || "this";
+  const house = (ctx && ctx.houseLev) || HOUSE_LEV;
+  if (action === "EXIT") return {
+    headline: "Consider selling everything in " + name,
+    detail: "Weekly regime is BROKEN (two Sunday closes under the 100 DMA). The bull bet on this name is done. Do not average down."
+  };
+  if (action === "DE-LEVER") {
+    const need = ctx && ctx.marginNeed;
+    const liq = ctx && ctx.liqPct;
+    return {
+      headline: "Consider de-levering " + name,
+      detail: `${(ctx.lev || 0).toFixed(1)}× vs house ${house}×.`
+        + (liq != null ? ` Est. liq is ${liq.toFixed(0)}% away.` : "")
+        + (need > 0 ? ` Add ${fmtUsd(need, 0)} margin to sit at ${house}×.` : "")
+        + " Do this before buying more coins. A 15% dip at 10× is how the bull ends."
+    };
+  }
+  if (action === "TRIM") return {
+    headline: "Consider trimming " + name,
+    detail: "Stretched vs its own 50-day mean. Sell about 30% of the coins into strength and keep a runner. Do not sell the rest unless weekly BROKEN. Do not trim again if you already cut."
+  };
+  if (action === "RE-ENTER") return {
+    headline: "Consider re-entering " + name,
+    detail: "You already trimmed and the daily has taken the high above your last sell (two closes). Buy the sleeve back. Do not chase if it is EXTENDED."
+  };
+  if (action === "RELOAD") return {
+    headline: "Consider buying more " + name,
+    detail: "Weekly BULL, daily UP, in the discount box. This is an add, not a new thesis. Keep house leverage."
+  };
+  if (action === "STAGED BID") return {
+    headline: "Consider a small buy in " + name,
+    detail: "This pullback is actually ≥5% off the swing high and in the weekly box. Small size. Not a full reload."
+  };
+  if (action === "HOLD RUNNER") return {
+    headline: "Sit on the " + name + " runner",
+    detail: "Daily looks ugly; weekly is not broken. Do not sell this weakness. Do not add until it is a real dip or a reclaim."
+  };
+  return {
+    headline: "No edge in " + name + " right now",
+    detail: "Wait. Adds belong on discounts, trims on stretch, exits on weekly BROKEN."
+  };
+}
+
+function suggestText(action, a, ctx) {
+  if (action === "DE-LEVER") {
+    const need = ctx && ctx.marginNeed;
+    return { txt: need > 0 ? "add " + fmtUsd(need, 0) + " margin" : "de-lever", cls: "hot" };
+  }
+  if (action === "EXIT") return { txt: "sell everything", cls: "down" };
+  if (action === "TRIM") return { txt: "trim ~30% of coins", cls: "hot" };
+  if (action === "RE-ENTER") return { txt: "buy the sleeve back", cls: "up" };
+  if (action === "RELOAD") return { txt: "buy more (discount)", cls: "up" };
+  if (action === "STAGED BID") return { txt: "small dip buy", cls: "up" };
+  if (action === "HOLD RUNNER") return { txt: "hold runner — don't sell", cls: "" };
+  if (action === "HOLD") return { txt: "wait", cls: "" };
   if (!a || !isFinite(a.delta)) return { txt: "—", cls: "" };
   const mag = Math.abs(a.delta);
   if (mag < 100) return { txt: "at size", cls: "" };
@@ -766,11 +849,60 @@ function suggestText(a) {
     : { txt: "trim " + fmtUsd(mag, 0), cls: "down" };
 }
 
+function actionCtx(pos, m, r) {
+  const house = Number(state.houseLev) || HOUSE_LEV;
+  const liqPct = m.mark && m.liq ? 100 * (m.mark - m.liq) / m.mark : null;
+  return {
+    symbol: pos.symbol,
+    houseLev: house,
+    lev: m.lev,
+    marginNeed: marginToHouse(m.notional, m.margin, house),
+    liqPct
+  };
+}
+
+function bookCoach() {
+  if (!state.positions.length) return "";
+  const house = Number(state.houseLev) || HOUSE_LEV;
+  const rows = state.positions.map(p => {
+    const m = metrics(p);
+    const r = regimes[p.geckoId];
+    const action = actionFor(r, { ...m, houseLev: house });
+    return { p, m, r, action, ctx: actionCtx(p, m, r) };
+  });
+  const equity = (Number(state.stables) || 0)
+    + rows.reduce((s, x) => s + Math.max(0, x.m.margin || 0) + (x.m.unrl || 0), 0);
+  const needX = equity > 0 ? GOAL_USD / equity : null;
+  const exits = rows.filter(x => x.action === "EXIT");
+  const delever = rows.filter(x => x.action === "DE-LEVER").sort((a, b) => (b.m.lev || 0) - (a.m.lev || 0));
+  const trims = rows.filter(x => x.action === "TRIM");
+  const buys = rows.filter(x => x.action === "RELOAD" || x.action === "STAGED BID" || x.action === "RE-ENTER");
+  let html = `<b>Path:</b> book ${fmtUsd(equity, 0)} → $500k is ${needX ? needX.toFixed(1) + "×" : "—"}. House ${house}×. `;
+  if (exits.length) {
+    html += `<span class="bad">Sell everything: ${exits.map(x => x.p.symbol).join(", ")}</span>. Weekly 100 DMA lost. `;
+  }
+  if (delever.length) {
+    html += `<span class="hot">Do this first — de-lever</span> ${delever.map(x =>
+      `${x.p.symbol} (${(x.m.lev || 0).toFixed(1)}×, add ${fmtUsd(x.ctx.marginNeed, 0)} margin)`
+    ).join("; ")}. A 15% dip at 10× ends the six-month bet. `;
+  } else if (trims.length) {
+    html += `<span class="hot">Consider trimming</span> ${trims.map(x => x.p.symbol).join(", ")} into stretch; keep runners. `;
+  }
+  if (!delever.length && buys.length) {
+    html += `<b>Consider buying:</b> ${buys.map(x => x.p.symbol + " (" + x.action.toLowerCase() + ")").join(", ")}. `;
+  }
+  if (!exits.length && !delever.length && !trims.length && !buys.length) {
+    html += "No de-lever, no weekly break, no stretch trim. Sit on runners. Adds wait for a real discount.";
+  }
+  return html;
+}
+
 function miniCard(pos, a) {
   const m = metrics(pos);
-  const sug = suggestText(a);
   const r = regimes[pos.geckoId];
-  const action = actionFor(r, m) || "—";
+  const ctx = actionCtx(pos, m, r);
+  const action = actionFor(r, { ...m, houseLev: ctx.houseLev }) || "—";
+  const sug = suggestText(action, a, ctx);
   const col = ACTION_COLOR[action] || "var(--muted)";
   const z = r?.stretch?.z;
   const frac = z != null ? Math.max(0, Math.min(1, z / EXTENDED_Z)) : 0;
@@ -796,12 +928,9 @@ function miniCard(pos, a) {
 function render() {
   $("stables").value = state.stables ?? 0;
   $("fundingApr").value = state.fundingApr ?? FUNDING_APR_DEFAULT;
+  $("houseLev").value = state.houseLev ?? HOUSE_LEV;
   const alloc = allocationPlan();
-  const pctDep = alloc.total > 0 ? 100 * alloc.deployed / alloc.total : 0;
-  const under = Object.values(alloc.plan).filter(a => a.delta > 100).length;
-  $("allocBar").textContent = state.positions.length
-    ? `${alloc.bulls}/${alloc.n} BULL → suggest ${(100 * alloc.targetDeployed).toFixed(0)}% deployed, ${(100 * (1 - alloc.targetDeployed)).toFixed(0)}% cash · you are ${pctDep.toFixed(0)}% deployed with ${fmtUsd(alloc.dry, 0)} dry · ${under} under suggested size`
-    : "";
+  $("coachBar").innerHTML = bookCoach();
   const el = $("cards");
   el.className = "wrap" + (simpleView && state.positions.length ? " simple" : "");
   document.body.classList.toggle("simple-mode", simpleView && state.positions.length > 0);
@@ -817,11 +946,13 @@ function render() {
   el.innerHTML = state.positions.map(pos => {
     const m = metrics(pos);
     const r = regimes[pos.geckoId];
-    const action = actionFor(r, m);
+    const ctx = actionCtx(pos, m, r);
+    const action = actionFor(r, { ...m, houseLev: ctx.houseLev });
     const a = alloc.plan[pos.id];
-    const sug = suggestText(a);
+    const sug = suggestText(action, a, ctx);
+    const tip = consider(action, ctx);
     const wKind = r?.weeklyState === "BULL" ? "" : r?.weeklyState === "BROKEN" ? "down" : "mid";
-    const aKind = action === "EXIT" ? "down" : action === "TRIM" ? "warn"
+    const aKind = action === "EXIT" ? "down" : action === "TRIM" || action === "DE-LEVER" ? "warn"
       : action === "RELOAD" || action === "STAGED BID" || action === "RE-ENTER" ? "" : "mid";
     // The regime MA (100 DMA) is the invalidation level now.
     const ma = r?.ma;
@@ -832,7 +963,7 @@ function render() {
       <div class="card-head">
         <div>
           <div class="sym">${pos.symbol}</div>
-          <div class="meta">${pos.geckoId} · target ${pos.leverage || 2}x · ${m.qty ? m.qty.toPrecision(4) : 0} coins</div>
+          <div class="meta">${pos.geckoId} · entry target ${pos.leverage || 2}x · house ${ctx.houseLev}x · ${m.qty ? m.qty.toPrecision(4) : 0} coins</div>
         </div>
         <div class="pills">
           ${r ? pill("Weekly " + r.weeklyState, wKind) : pill("Weekly —", "mid")}
@@ -860,6 +991,7 @@ function render() {
         <div class="stat"><div class="k">Weekly 0.5</div><div class="v">${fmtPx(r?.weekly?.fib?.r50)}</div></div>
         <div class="stat"><div class="k">Stretch vs 50d</div><div class="v">${r?.stretch ? fmtPct(100*r.stretch.now) : "—"} <span style="font-size:12px;color:var(--muted)">${r?.stretch ? "z " + r.stretch.z.toFixed(2) + " / " + EXTENDED_Z : ""}</span></div></div>
       </div>
+      <div class="consider"><strong>${tip.headline}</strong>${tip.detail}</div>
       <div class="actions">
         <button class="tiny" data-act="buy">Buy / add</button>
         <button class="tiny secondary" data-act="sell">Sell / trim</button>
@@ -954,6 +1086,10 @@ $("preset").innerHTML = PRESETS.map(([s,id]) => `<option value="${id}">${s}</opt
 $("stables").value = state.stables ?? 0;
 $("fundingApr").addEventListener("change", () => {
   state.fundingApr = Math.max(0, Number($("fundingApr").value) || 0);
+  save(state); render();
+});
+$("houseLev").addEventListener("change", () => {
+  state.houseLev = Math.max(1, Number($("houseLev").value) || HOUSE_LEV);
   save(state); render();
 });
 $("stables").addEventListener("change", () => {
