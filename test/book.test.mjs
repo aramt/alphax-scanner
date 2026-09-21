@@ -273,8 +273,10 @@ group("House leverage (de-lever before anything else)");
      actionFor({ ...bull, weeklyState: "BROKEN" }, { qty: 100, peakQty: 100, lastSell: null, lev: 10, houseLev: 2 }) === "EXIT");
   ok("tests without lev still get the old action (no false DE-LEVER)",
      actionFor(hot, { qty: 100, peakQty: 100, lastSell: null }) === "TRIM");
-  ok("$12,600 notional at 2x needs $5,300 more margin on $1,000",
+  ok("$12,600 notional at 2x needs $5,300 more margin on $1,000 equity",
      Math.abs(marginToHouse(12600, 1000, 2) - 5300) < 1e-9);
+  ok("UPnL counts as equity so a winner needs less extra margin",
+     Math.abs(marginToHouse(32090, 6163 + 2200, 2) - (32090 / 2 - 8363)) < 1e-6);
   ok("consider() speaks in trader English",
      consider("DE-LEVER", { symbol: "LIT", lev: 10, houseLev: 2, marginNeed: 5000, liqPct: 11 }).headline === "Consider de-levering LIT");
   ok("EXIT copy is sell everything",

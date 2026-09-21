@@ -761,12 +761,17 @@ function metrics(pos) {
   const unrl = mark != null && f.qty ? (mark - f.avg) * f.qty : 0;
   const total = f.realized + unrl;
   const notional = mark != null ? f.qty * mark : null;
-  const lev = f.margin > 0 && notional != null ? notional / f.margin : Number(pos.leverage) || 2;
+  // Isolated-perp risk leverage: notional / equity. Equity = posted margin + UPnL.
+  // A winning long gets SAFER (lev falls). Dividing by posted margin only would
+  // make a winner look more levered — the opposite of how liq works.
+  const equity = (f.margin || 0) + (unrl || 0);
+  const lev = notional != null && equity > 1e-6 ? notional / equity
+    : (notional > 0 ? Infinity : Number(pos.leverage) || 2);
   const liq = f.qty > 0 && f.margin > 0 ? f.avg - f.margin / f.qty : null;
   const funding = fundingCost(pos.events, state.fundingApr ?? FUNDING_APR_DEFAULT, mark, Date.now());
   const net = total - funding;
   const roe = f.margin > 0 ? 100 * net / f.margin : null;
-  return { ...f, mark, chg, unrl, total, funding, net, notional, lev, liq, roe };
+  return { ...f, mark, chg, unrl, equity, total, funding, net, notional, lev, liq, roe };
 }
 
 function pill(text, kind) {
@@ -778,9 +783,9 @@ const ACTION_COLOR = {
   "RELOAD": "var(--accent)", "STAGED BID": "var(--accent)", "RE-ENTER": "var(--accent)"
 };
 
-function marginToHouse(notional, margin, house) {
+function marginToHouse(notional, equity, house) {
   if (!(notional > 0) || !(house > 0)) return 0;
-  return Math.max(0, notional / house - (margin || 0));
+  return Math.max(0, notional / house - Math.max(0, equity || 0));
 }
 
 // Plain-language "consider …" line. This is the product: what a trader
@@ -856,7 +861,7 @@ function actionCtx(pos, m, r) {
     symbol: pos.symbol,
     houseLev: house,
     lev: m.lev,
-    marginNeed: marginToHouse(m.notional, m.margin, house),
+    marginNeed: marginToHouse(m.notional, m.equity != null ? m.equity : (m.margin || 0) + (m.unrl || 0), house),
     liqPct
   };
 }
@@ -985,7 +990,7 @@ function render() {
         <div class="stat"><div class="k">Margin in</div><div class="v">${fmtUsd(m.margin,0)}</div></div>
         <div class="stat"><div class="k">Suggested size${a && a.rank ? " (#" + a.rank + " of " + a.of + ")" : ""}</div><div class="v">${a ? fmtUsd(a.target,0) : "—"}</div></div>
         <div class="stat"><div class="k">Suggestion</div><div class="v ${sug.cls}">${sug.txt}</div></div>
-        <div class="stat"><div class="k">Eff. lev</div><div class="v">${m.lev && isFinite(m.lev) ? m.lev.toFixed(2)+"x" : "—"}</div></div>
+        <div class="stat"><div class="k">Eff. lev</div><div class="v">${m.lev && isFinite(m.lev) ? m.lev.toFixed(2)+"x" : "—"} <span style="font-size:12px;color:var(--muted)">on equity</span></div></div>
         <div class="stat"><div class="k">Est. liq</div><div class="v">${fmtPx(m.liq)} <span style="font-size:12px;color:var(--muted)">${liqDist!=null ? liqDist.toFixed(0)+"% away" : ""}</span></div></div>
         <div class="stat"><div class="k">100 DMA (regime)</div><div class="v">${fmtPx(ma)} <span style="font-size:12px;color:var(--muted)">${maDist!=null ? maDist.toFixed(0)+"% above" : ""}</span></div></div>
         <div class="stat"><div class="k">Weekly 0.5</div><div class="v">${fmtPx(r?.weekly?.fib?.r50)}</div></div>

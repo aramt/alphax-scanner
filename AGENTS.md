@@ -196,7 +196,9 @@ kind = notional:  qty = usd / price             →  8_000 coins, $1k margin
 - Unrealized = `(mark - avg) * qty`
 - Total PnL = realized + unrealized
 - Notional = `qty * mark`
-- Effective lev = `notional / margin`
+- Equity = `margin + unrealized` (isolated-perp convention)
+- Effective lev = `notional / equity` — a winning long gets safer; a loser gets hotter
+- Extra margin to reach house leverage = `notional / houseLev - equity`
 - Est. liq (linear perp, rough) = `avg - margin/qty`
 - ROE = `total / margin`
 
@@ -616,7 +618,7 @@ Please grade against **intent**, not against a Bloomberg terminal.
 - `book-store.php` CORS `*` + hash-as-capability. Fine for a personal phrase; not auth.
 - SHA-256(phrase) is not a password KDF; phrase strength matters.
 - No conflict merge if two devices save at once.
-- Effective leverage on screen is `notional/margin`. If the user typed target 10x or under-margined a 2x thesis, the card will show ~10x+ — that is the ledger, not a bug in the weekly detector.
+- Effective leverage on screen is `notional / (margin + UPnL)`. If you typed 4.85× and you are up, the number should fall, not rise. DE-LEVER still fires when that equity leverage is above house × 1.25.
 - ENA can be “weekly UP” on a local breakout while still far below a 52-week high. That is **this leg**, not “macro ATH bull.”
 - Actions (TRIM/EXIT) are heuristic; they will be wrong in chop.
 - The regime rule beats buy-and-hold over 8.7 years but LOSES in one of the two sample halves, and the best MA length flips between halves. It is the single most important rule in the book and its exact setting is inside the noise.
