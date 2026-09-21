@@ -272,7 +272,7 @@ coins, weekly samples, 30-day forward, top-half minus bottom-half:
 
 | factor | spread | hit rate | t |
 |---|---|---|---|
-| **90d momentum** | **+15.5%** | **59%** | **2.90** |
+| **90d momentum** | **+15.5%** | **59%** | **2.90**† |
 | furthest above 100 DMA | +14.0% | 55% | 2.60 |
 | cheapest by stretch z | +3.3% | 47% | 0.61 |
 | highest 30d volatility | +19.1% | **51%** | 3.47 |
@@ -283,8 +283,27 @@ with huge magnitude, which is **beta, not prediction**; at 2x it is how you get
 liquidated. Buying the cheapest coin does **not** work across coins:
 DISCOUNTED/RELOAD is for timing *within* a coin, a different question.
 
+† **That t-stat was overstated and is corrected here.** It came from weekly
+samples with 30-day forward windows, which overlap heavily. Re-run with
+**non-overlapping** windows on the same 8.7 years, 90d momentum gives
+**t=1.90**, spread +18.4%, hit 57% — suggestive, not significant. On the
+separate Coinalyze basket (10 coins, 2022-2026, non-overlapping) it gives
+**t=0.21**.
+
 Allocating by momentum rank returned **2.60x vs 2.00x** equal-weight at the same
-drawdown (−77% vs −79%).
+drawdown (−77% vs −79%). Split by period, that edge is front-loaded:
+
+| period | equal weight | momentum tilt | tilt edge |
+|---|---|---|---|
+| full | 2.63x | 3.57x | **+36%** |
+| to 2024-07 | 2.09x | 2.78x | +33% |
+| 2024-07 onward | 1.26x | 1.28x | **+2%** |
+
+The tilt **never lost** in any split, which is why `ALLOC_TILT` stays at 1, and
+cross-sectional momentum has strong support outside this sample. But its edge
+has been roughly nil for two years while it raises the top position from 20% to
+33% (with five coins). If that concentration bothers you at 2x, `ALLOC_TILT = 0`
+is equal weight and on recent evidence costs you almost nothing.
 
 **Limits, and they are real:**
 
@@ -304,41 +323,37 @@ drawdown (−77% vs −79%).
 Shown as **suggestions** — "add $5,050", "trim $2,983", "at size" — never as
 orders, and never auto-applied.
 
-### Open interest: tested, adds nothing (so far)
+### Open interest: tested on 4 years, adds nothing
 
-OI history is free from OKX with no key:
-`GET /api/v5/rubik/stat/contracts/open-interest-volume?ccy=<CCY>&period=1D`.
-It covers HYPE, PENDLE, RENDER, PUMP, LIT, XPL, BTC, ETH, SOL, DOGE, LINK —
-**not** ENA or AVAX. Align it to candles by **UTC date**; the raw timestamps do
-not match `1Dutc` bars.
+**Settled, with good data.** A live Coinalyze key already exists in the sibling
+project `~/Local Sites/crypto-oi/.env` (the Flush Board). It gives **4.1 years**
+of daily OI back to 2022-08, funding and liquidations back to 2021-01, and
+covers every coin in the book including ENA. Price and OI come from the same
+endpoint, so there is no date-alignment problem. Do not pay for anything.
 
-**It is capped at 180 days.** That is the same sample size that produced the two
-worst calls in this repo's history (the 200 DMA, the percentile stretch rank).
+Tested cross-sectionally on 10 coins, 2022-2026, **non-overlapping** 30-day
+windows (n=46):
 
-Tested cross-sectionally on 11 coins, 180 days, forward 14d and 30d. The OI
-signals looked excellent until controlled for price momentum:
-
-| forward 14d | spread | hit | t |
+| factor | spread | hit | t |
 |---|---|---|---|
-| **price momentum 14d alone (control)** | **+7.45%** | 87% | 4.02 |
-| price up + OI up | +6.77% | 93% | 5.25 |
-| OI z vs own 30d | +5.96% | 87% | 3.97 |
-| OI z among strong-momentum coins only | +5.10% | 80% | 2.16 |
-| **OI growth minus price growth (pure OI)** | **−4.69%** | 33% | −1.92 |
+| price momentum 30d (control) | +0.40% | 54% | 0.21 |
+| OI growth 30d | +0.91% | 59% | 0.44 |
+| OI z vs own 60d | −0.05% | 54% | −0.02 |
+| price up + OI up | −0.79% | 52% | −0.37 |
+| pure OI (OI growth − price growth) | +0.59% | 50% | 0.34 |
 
-`price up + OI up` is `min(priceChange, oiChange)` — price momentum in disguise.
-Plain momentum beat every OI-containing signal on spread, and residualised OI
-turned mildly **negative**. Same result at 30d.
+Nothing. No OI specification clears t=0.5. The earlier 180-day result that
+looked strong (86-93% hit rates) was price momentum in disguise plus an
+overlapping-window artifact.
 
-**Do not add OI to the book on this evidence.** What would change the answer:
-history spanning a real top. The crowding hypothesis (extreme OI + hot funding
-marking a local high) can only be tested where there is a top, and there is none
-in 180 days of bull. Coinalyze needs a free API key; before paying for anything,
-check **how far back its history goes** — if it does not span 2021–22 it adds
-nothing over OKX's free feed.
+The crowding hypothesis — extreme OI marking a local top — has now had its fair
+hearing on data spanning a real top, and it is not there. **Do not revisit this
+without a genuinely new idea, not just more data.**
 
-Live OI stays in the AlphaX scanner (`index.html`), where it does a different
-job: spotting turnover with no real book behind it. Discovery, not timing.
+OI's real use is the job the Flush Board already does with it: liquidation
+cascades and forced-selling exhaustion, which is a different question from
+"which coin do I add to". Live OI also stays in the AlphaX scanner for
+discovery. Neither belongs in the HTF book.
 
 ### Simple view
 
