@@ -233,6 +233,55 @@ price path between events is approximated by the last transacted price, so a
 position held across a large move is estimated rather than exact. Logging exact
 `funding` events is the obvious next step if the estimate proves too coarse.
 
+### Suggested sizing (`allocTargets`)
+
+Answers "which coin gets the next dollar, and how much" — the question the
+action labels never carried a number for.
+
+Capital is derived, not entered: **total = deployed margin + stables**, both
+already in the book. BULL coins are ranked by **90-day momentum** and weighted
+by rank; anything not BULL targets **zero**, which is what turns "cut this one"
+into a dollar figure. Targets sum to total capital, so suggested adds minus
+suggested trims always equals available dry powder — the plan is fundable by
+construction.
+
+**Why momentum.** Cross-sectional test on 8.7 years of OKX daily closes, 6
+coins, weekly samples, 30-day forward, top-half minus bottom-half:
+
+| factor | spread | hit rate | t |
+|---|---|---|---|
+| **90d momentum** | **+15.5%** | **59%** | **2.90** |
+| furthest above 100 DMA | +14.0% | 55% | 2.60 |
+| cheapest by stretch z | +3.3% | 47% | 0.61 |
+| highest 30d volatility | +19.1% | **51%** | 3.47 |
+
+Momentum is the only one where magnitude *and* frequency agree. The volatility
+"edge" has the biggest t-stat and a 51% hit rate — it wins barely half the time
+with huge magnitude, which is **beta, not prediction**; at 2x it is how you get
+liquidated. Buying the cheapest coin does **not** work across coins:
+DISCOUNTED/RELOAD is for timing *within* a coin, a different question.
+
+Allocating by momentum rank returned **2.60x vs 2.00x** equal-weight at the same
+drawdown (−77% vs −79%).
+
+**Limits, and they are real:**
+
+- Six coins. Overlapping 30-day windows from weekly samples means the effective
+  sample is far smaller than n=148, so the t-stats are inflated — probably by
+  about half. Momentum's real support is the external literature, not this test.
+- The test used established coins. **A recently listed token that has run hard
+  will rank #1 and attract the largest suggested add** — exactly where reversal
+  risk is highest. This extrapolates beyond what was tested. Watch it on LIT,
+  XPL and PUMP.
+- Momentum crashes at turns. That is its documented failure mode.
+- Open interest was **not** tested: there is no historical OI in the data, so it
+  is deliberately absent rather than guessed at.
+- `ALLOC_TILT` dials the tilt: 1 is what was tested, 0 is equal weight across
+  BULL coins.
+
+Shown as **suggestions** — "add $5,050", "trim $2,983", "at size" — never as
+orders, and never auto-applied.
+
 ### Simple view
 
 `viewBtn` toggles a compact grid (`.wrap.simple`) of one tile per coin: symbol,
@@ -473,6 +522,7 @@ Please grade against **intent**, not against a Bloomberg terminal.
 - `EXTENDED_Z` is unvalidated. It is a reasonable dial, not a backtested edge, and it fires very unevenly across coins (see above). Treat TRIM as a prompt to look, not a number to trust.
 - RE-ENTER buys strength. The two-close guard blocks same-day reversals but not a two-day fakeout. In chop it will be wrong.
 - Stretch uses `SMA50` of daily **closes**, so it inherits the close-only weakness above. It needs 80 daily bars; below that `stretchZ` returns null and the cycle stays MID.
+- Suggested sizing ranks on a factor tested over six established coins; it will over-weight a hot new listing. See above.
 - Funding is a flat estimated rate, not the venue's actual per-period rate. See above.
 - Tests cover the pure logic only (`fold`, `sizeFromInputs`, `structure`, `stretchZ`, `regimeFromOhlc`, `actionFor`). Nothing covers the DOM, the sync layer, or the PHP.
 

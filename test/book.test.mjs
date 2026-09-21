@@ -28,10 +28,10 @@ function grab(name) {
 }
 
 const NAMES = ["fold", "sizeFromInputs", "bucketBars", "toDaily", "toWeekly",
-               "swings", "structure", "stretchZ", "trendRegime", "fundingCost", "daysSince", "regimeFromOhlc", "actionFor"];
+               "swings", "structure", "stretchZ", "trendRegime", "fundingCost", "allocTargets", "daysSince", "regimeFromOhlc", "actionFor"];
 // The EXTENDED threshold is a top-level const, not a function.
-const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const FUNDING_APR_DEFAULT = [\d.]+;/)[0];
-const { fold, sizeFromInputs, structure, stretchZ, trendRegime, fundingCost, regimeFromOhlc, actionFor } =
+const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const ALLOC_TILT = [\d.]+;/)[0];
+const { fold, sizeFromInputs, structure, stretchZ, trendRegime, fundingCost, allocTargets, regimeFromOhlc, actionFor } =
   new Function(CONSTS + "\n" + NAMES.map(grab).join("\n") + `\nreturn {${NAMES.join(",")}};`)();
 
 let pass = 0, fail = 0;
@@ -276,6 +276,39 @@ group("Funding accrual");
   ok("a trim reduces funding from the trim onward",
      Math.abs(fundingCost(trimmed, 8, 10, YEAR_LATER) - 60) < 0.01,
      `got ${fundingCost(trimmed, 8, 10, YEAR_LATER).toFixed(2)}`);
+}
+
+group("Suggested sizing");
+{
+  const E = (id, bull, mom, margin) => ({ id, bull, mom, margin });
+  const sum = (p) => Object.values(p).reduce((s, x) => s + x.pct, 0);
+
+  // Three BULL coins, $30k book. Rank by momentum: best gets the biggest share.
+  const p = allocTargets([E("a", true, 0.9, 2000), E("b", true, 0.5, 5000), E("c", true, 0.1, 9000)], 30000, 1);
+  ok("strongest momentum is ranked first", p.a.rank === 1 && p.c.rank === 3);
+  ok("weights sum to 1", Math.abs(sum(p) - 1) < 1e-9, `got ${sum(p)}`);
+  ok("the leader gets the largest target", p.a.target > p.b.target && p.b.target > p.c.target);
+  ok("targets sum to the whole book",
+     Math.abs(p.a.target + p.b.target + p.c.target - 30000) < 1e-6);
+  ok("under-sized leader is told to add", p.a.delta > 0, `delta=${p.a.delta}`);
+  ok("over-sized laggard is told to trim", p.c.delta < 0, `delta=${p.c.delta}`);
+
+  // Not BULL -> target zero, i.e. "close this one", which is what makes EXIT a number.
+  const q = allocTargets([E("a", true, 0.9, 5000), E("dead", false, 0.9, 4000)], 20000, 1);
+  ok("a non-BULL coin targets zero", q.dead.target === 0 && q.dead.rank === null);
+  ok("a non-BULL coin is told to trim its whole margin", Math.abs(q.dead.delta + 4000) < 1e-9);
+  ok("a BULL coin alone takes the whole book", Math.abs(q.a.pct - 1) < 1e-9);
+
+  // tilt = 0 is equal weight; tilt = 1 is the tested rank weighting.
+  const eq = allocTargets([E("a", true, 0.9, 0), E("b", true, 0.1, 0)], 10000, 0);
+  ok("tilt 0 gives equal weight", Math.abs(eq.a.pct - eq.b.pct) < 1e-9);
+  const tl = allocTargets([E("a", true, 0.9, 0), E("b", true, 0.1, 0)], 10000, 1);
+  ok("tilt 1 favours the leader", tl.a.pct > tl.b.pct);
+
+  ok("a coin with no momentum history is not ranked",
+     allocTargets([E("a", true, null, 1000)], 5000, 1).a.rank === null);
+  ok("an empty book produces an empty plan",
+     Object.keys(allocTargets([], 10000, 1)).length === 0);
 }
 
 console.log(`\n${fail ? "FAILED" : "ok"} — ${pass} passed, ${fail} failed\n`);

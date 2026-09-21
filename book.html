@@ -184,6 +184,7 @@
 <div class="toolbar adv" style="grid-template-columns: 1fr; padding-top: 0;">
   <div class="status" id="status" style="padding: 8px 0;">Set a sync phrase so the book survives closing the browser and works on your phone.</div>
 </div>
+<div class="status" id="allocBar" style="padding-bottom:10px"></div>
 <div class="wrap" id="cards"></div>
 <p class="note">
   Average entry is the live bag: sells lock realized PnL and leave remaining coins at the old average; buys blend a new average.
@@ -228,6 +229,21 @@ const REGIME_WEEKS = 2;
 // book of alts, which tend to run hotter than majors. Editable in the toolbar;
 // stored per book. Set it to 0 to switch funding off entirely.
 const FUNDING_APR_DEFAULT = 8;
+// Which BULL coin should the next dollar go to? Tested cross-sectionally on
+// 8.7 years of OKX daily closes (6 coins, weekly samples, 30d forward):
+//   90d momentum   spread +15.5%  hit 59%  t=2.90   <- the only survivor
+//   cheapest by z  spread  +3.3%  hit 47%  t=0.61   <- nothing
+//   highest vol    spread +19.1%  hit 51%  t=3.47   <- a beta trap, not skill
+// The volatility "edge" wins barely half the time with huge magnitude: that is
+// leverage, not prediction, and at 2x it is how you get liquidated. Buying the
+// most beaten-down coin does NOT work across coins -- DISCOUNTED/RELOAD is for
+// timing WITHIN a coin, which is a different question.
+// Allocating by momentum rank returned 2.60x vs 2.00x equal-weight at the same
+// drawdown. Caveats in AGENTS.md: 6 coins, overlapping windows inflate the
+// t-stats, and momentum crashes at turns.
+const MOMENTUM_DAYS = 90;
+// 1 = full momentum tilt (what was tested), 0 = equal weight across BULL coins.
+const ALLOC_TILT = 1;
 const STORE = "htf-book-v1";
 const SYNC_STORE = "htf-book-sync-hash";
 const VIEW_STORE = "htf-book-view";
@@ -590,7 +606,9 @@ function regimeFromOhlc(dailyRaw, fourHour) {
   }
 
   const closes2 = daily.slice(-2).map(b => b.c);
-  return { weeklyState, dailyState, cycle, correctionDays, weekly: w, daily: d, close, closes2, stretch, ma: reg.ma };
+  const j = daily.length - 1 - MOMENTUM_DAYS;
+  const mom = j >= 0 && daily[j].c > 0 ? daily[daily.length - 1].c / daily[j].c - 1 : null;
+  return { weeklyState, dailyState, cycle, correctionDays, weekly: w, daily: d, close, closes2, stretch, ma: reg.ma, mom };
 }
 
 // Action depends on the LEDGER, not just price, so it is derived at render time
@@ -653,6 +671,37 @@ function fundingCost(events, apr, mark, now) {
   return cost;
 }
 
+// Suggested sizing. Capital is what the book already knows: deployed margin plus
+// stables. BULL coins are ranked by 90d momentum and weighted by rank; anything
+// not BULL targets zero, which is what makes "cut this one" a number instead of
+// a word. Pure so it can be tested: callers build `entries` from state.
+function allocTargets(entries, total, tilt) {
+  const t = tilt == null ? ALLOC_TILT : tilt;
+  const out = {};
+  const bull = entries.filter(e => e.bull && e.mom != null).sort((a, b) => b.mom - a.mom);
+  const n = bull.length;
+  const denom = n * (n + 1) / 2;
+  bull.forEach((e, i) => {
+    const pct = n === 1 ? 1 : t * ((n - i) / denom) + (1 - t) / n;
+    out[e.id] = { pct, rank: i + 1, of: n, target: pct * total, delta: pct * total - e.margin };
+  });
+  entries.forEach(e => {
+    if (!out[e.id]) out[e.id] = { pct: 0, rank: null, of: n, target: 0, delta: -e.margin };
+  });
+  return out;
+}
+
+function allocationPlan() {
+  const entries = state.positions.map(p => {
+    const m = metrics(p);
+    const r = regimes[p.geckoId];
+    return { id: p.id, bull: !!r && r.weeklyState === "BULL", mom: r ? r.mom : null, margin: m.margin || 0 };
+  });
+  const deployed = entries.reduce((s, e) => s + Math.max(0, e.margin), 0);
+  const total = deployed + (Number(state.stables) || 0);
+  return { plan: allocTargets(entries, total, ALLOC_TILT), total, deployed, dry: total - deployed };
+}
+
 function metrics(pos) {
   const f = fold(pos.events);
   const mark = marks[pos.geckoId]?.usd;
@@ -679,8 +728,20 @@ const ACTION_COLOR = {
 
 // Compact tile: symbol, mark, the decision, regime, PnL, and how close the coin
 // is to the TRIM threshold. Everything else lives in the detailed card.
-function miniCard(pos) {
+// Framed as a suggestion, never an order: these are heuristics that will be
+// wrong in chop, and the ranking rests on 6 coins.
+function suggestText(a) {
+  if (!a || !isFinite(a.delta)) return { txt: "—", cls: "" };
+  const mag = Math.abs(a.delta);
+  if (mag < 100) return { txt: "at size", cls: "" };
+  return a.delta > 0
+    ? { txt: "add " + fmtUsd(mag, 0), cls: "up" }
+    : { txt: "trim " + fmtUsd(mag, 0), cls: "down" };
+}
+
+function miniCard(pos, a) {
   const m = metrics(pos);
+  const sug = suggestText(a);
   const r = regimes[pos.geckoId];
   const action = actionFor(r, m) || "—";
   const col = ACTION_COLOR[action] || "var(--muted)";
@@ -700,6 +761,7 @@ function miniCard(pos) {
       <b class="${clsPnL(m.chg)}">${fmtPct(m.chg)}</b>
     </div>
     <div class="mini-row"><span>${m.qty ? "PnL" : "watching"}</span><b class="${clsPnL(m.net)}">${m.qty ? fmtUsd(m.net, 0) : ""}</b></div>
+    <div class="mini-row"><span>${a && a.rank ? "#" + a.rank + " of " + a.of : "not ranked"}</span><b class="${sug.cls}">${sug.txt}</b></div>
     <div class="mini-bar" title="stretch toward the TRIM threshold"><i style="width:${(100*frac).toFixed(0)}%;background:${frac >= 1 ? "var(--warn)" : "var(--accent)"}"></i></div>
   </article>`;
 }
@@ -707,12 +769,18 @@ function miniCard(pos) {
 function render() {
   $("stables").value = state.stables ?? 0;
   $("fundingApr").value = state.fundingApr ?? FUNDING_APR_DEFAULT;
+  const alloc = allocationPlan();
+  const pctDep = alloc.total > 0 ? 100 * alloc.deployed / alloc.total : 0;
+  const under = Object.values(alloc.plan).filter(a => a.delta > 100).length;
+  $("allocBar").textContent = state.positions.length
+    ? `${pctDep.toFixed(0)}% deployed · ${fmtUsd(alloc.dry, 0)} dry powder · ${fmtUsd(alloc.total, 0)} book · ${under} under suggested size`
+    : "";
   const el = $("cards");
   el.className = "wrap" + (simpleView && state.positions.length ? " simple" : "");
   document.body.classList.toggle("simple-mode", simpleView && state.positions.length > 0);
   $("viewBtn").textContent = simpleView ? "Detailed view" : "Simple view";
   if (simpleView && state.positions.length) {
-    el.innerHTML = state.positions.map(miniCard).join("");
+    el.innerHTML = state.positions.map(p => miniCard(p, alloc.plan[p.id])).join("");
     return;
   }
   if (!state.positions.length) {
@@ -723,6 +791,8 @@ function render() {
     const m = metrics(pos);
     const r = regimes[pos.geckoId];
     const action = actionFor(r, m);
+    const a = alloc.plan[pos.id];
+    const sug = suggestText(a);
     const wKind = r?.weeklyState === "BULL" ? "" : r?.weeklyState === "BROKEN" ? "down" : "mid";
     const aKind = action === "EXIT" ? "down" : action === "TRIM" ? "warn"
       : action === "RELOAD" || action === "STAGED BID" || action === "RE-ENTER" ? "" : "mid";
@@ -755,6 +825,8 @@ function render() {
         <div class="stat"><div class="k">ROE (net)</div><div class="v ${clsPnL(m.roe)}">${fmtPct(m.roe)}</div></div>
         <div class="stat"><div class="k">Notional</div><div class="v">${fmtUsd(m.notional,0)}</div></div>
         <div class="stat"><div class="k">Margin in</div><div class="v">${fmtUsd(m.margin,0)}</div></div>
+        <div class="stat"><div class="k">Suggested size${a && a.rank ? " (#" + a.rank + " of " + a.of + ")" : ""}</div><div class="v">${a ? fmtUsd(a.target,0) : "—"}</div></div>
+        <div class="stat"><div class="k">Suggestion</div><div class="v ${sug.cls}">${sug.txt}</div></div>
         <div class="stat"><div class="k">Eff. lev</div><div class="v">${m.lev && isFinite(m.lev) ? m.lev.toFixed(2)+"x" : "—"}</div></div>
         <div class="stat"><div class="k">Est. liq</div><div class="v">${fmtPx(m.liq)} <span style="font-size:12px;color:var(--muted)">${liqDist!=null ? liqDist.toFixed(0)+"% away" : ""}</span></div></div>
         <div class="stat"><div class="k">100 DMA (regime)</div><div class="v">${fmtPx(ma)} <span style="font-size:12px;color:var(--muted)">${maDist!=null ? maDist.toFixed(0)+"% above" : ""}</span></div></div>
