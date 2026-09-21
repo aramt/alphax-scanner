@@ -296,13 +296,49 @@ drawdown (−77% vs −79%).
   risk is highest. This extrapolates beyond what was tested. Watch it on LIT,
   XPL and PUMP.
 - Momentum crashes at turns. That is its documented failure mode.
-- Open interest was **not** tested: there is no historical OI in the data, so it
-  is deliberately absent rather than guessed at.
+- Open interest **was** tested and rejected — see below. It is absent on
+  evidence, not for lack of data.
 - `ALLOC_TILT` dials the tilt: 1 is what was tested, 0 is equal weight across
   BULL coins.
 
 Shown as **suggestions** — "add $5,050", "trim $2,983", "at size" — never as
 orders, and never auto-applied.
+
+### Open interest: tested, adds nothing (so far)
+
+OI history is free from OKX with no key:
+`GET /api/v5/rubik/stat/contracts/open-interest-volume?ccy=<CCY>&period=1D`.
+It covers HYPE, PENDLE, RENDER, PUMP, LIT, XPL, BTC, ETH, SOL, DOGE, LINK —
+**not** ENA or AVAX. Align it to candles by **UTC date**; the raw timestamps do
+not match `1Dutc` bars.
+
+**It is capped at 180 days.** That is the same sample size that produced the two
+worst calls in this repo's history (the 200 DMA, the percentile stretch rank).
+
+Tested cross-sectionally on 11 coins, 180 days, forward 14d and 30d. The OI
+signals looked excellent until controlled for price momentum:
+
+| forward 14d | spread | hit | t |
+|---|---|---|---|
+| **price momentum 14d alone (control)** | **+7.45%** | 87% | 4.02 |
+| price up + OI up | +6.77% | 93% | 5.25 |
+| OI z vs own 30d | +5.96% | 87% | 3.97 |
+| OI z among strong-momentum coins only | +5.10% | 80% | 2.16 |
+| **OI growth minus price growth (pure OI)** | **−4.69%** | 33% | −1.92 |
+
+`price up + OI up` is `min(priceChange, oiChange)` — price momentum in disguise.
+Plain momentum beat every OI-containing signal on spread, and residualised OI
+turned mildly **negative**. Same result at 30d.
+
+**Do not add OI to the book on this evidence.** What would change the answer:
+history spanning a real top. The crowding hypothesis (extreme OI + hot funding
+marking a local high) can only be tested where there is a top, and there is none
+in 180 days of bull. Coinalyze needs a free API key; before paying for anything,
+check **how far back its history goes** — if it does not span 2021–22 it adds
+nothing over OKX's free feed.
+
+Live OI stays in the AlphaX scanner (`index.html`), where it does a different
+job: spotting turnover with no real book behind it. Discovery, not timing.
 
 ### Simple view
 
