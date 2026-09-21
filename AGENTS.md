@@ -446,6 +446,9 @@ A 5% and a 10% buffer under the MA were both tested and made things worse (21
 and 29 episodes). No buffer is used. The cost is that a marginal break — price
 0.3% under the line on two weekly closes — reads the same as a decisive one.
 
+`trendRegime` only inspects **Sunday UTC** bars. The live mid-week close is
+ignored, so one weak Sunday plus a Wednesday dip cannot flip BROKEN.
+
 ### Do not de-risk into weakness
 
 Replaying "sell the swing sleeve when the book says CORRECTION, buy back on the
@@ -536,8 +539,8 @@ Actions, in precedence order:
 | Condition | Action |
 |---|---|
 | Weekly BROKEN | **EXIT** |
-| Daily CORRECTION + weekly-discounted | **STAGED BID** |
-| Daily CORRECTION | **HOLD RUNNER** |
+| Daily CORRECTION + weekly-discounted + **≥5% below the starting swing high** | **STAGED BID** |
+| Daily CORRECTION (otherwise) | **HOLD RUNNER** |
 | EXTENDED, position already trimmed | **HOLD** (missed it — do not chase, do not trim again) |
 | EXTENDED, position full | **TRIM** |
 | Reclaim conditions above | **RE-ENTER** |
@@ -573,9 +576,9 @@ Please grade against **intent**, not against a Bloomberg terminal.
 4. Book qty is coins; USD+leverage+price can derive qty.
 5. Partial sell locks realized PnL and does not change remaining average until a new buy.
 6. Extra margin does not change average entry.
-7. Weekly BROKEN = close under last confirmed swing low, not “fractals still look like the last correction.”
-8. Taking the last confirmed weekly high (including ATH) is UP.
-9. CORRECTION exists so a 6–15 day alt bleed inside a living weekly uptrend is not EXIT.
+7. Weekly regime is BULL / BROKEN / THIN. BROKEN = **two completed Sunday UTC closes** under the 100 DMA. A live mid-week bar does not count. Fractal swing lows do **not** set the weekly regime.
+8. Daily `tookHigh` (close above last confirmed daily high) is still how a *swing* breakout is detected, including ATH. That is not the weekly regime.
+9. Daily CORRECTION is informational: HOLD RUNNER, never EXIT. STAGED BID only if the coin is actually ≥5% below the swing high that started the correction **and** in the weekly fib box.
 10. Book JSON is not web-accessible under `/alphax-scanner/`.
 11. Secrets are not in git.
 
@@ -608,7 +611,7 @@ Please grade against **intent**, not against a Bloomberg terminal.
 - After `book.html` / `api.php` / `book-store.php` changes: scp to SiteGround **and** push `main`.
 - Never print or commit `config.php`, the CoinGecko key, SiteGround passwords, or the user’s sync phrase.
 - Do not “helpfully” move book JSON back under `public_html`.
-- If you change structure rules, document the new definition here in the same PR/commit, and sanity-check HYPE-at-highs (must not be EXIT solely because confirmed highs lag).
+- If you change regime rules, document the new definition here in the same commit. Sanity-check: HYPE near highs must not be EXIT; one mid-week dip after a single weak Sunday must not be BROKEN.
 
 ---
 

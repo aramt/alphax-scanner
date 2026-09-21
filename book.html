@@ -554,10 +554,10 @@ function stretchZ(bars, win) {
   return { now, z: sd > 0 ? (now - mean) / sd : 0 };
 }
 
-// BULL until two consecutive weekly closes land under the 200 DMA; back to BULL
-// on the first weekly close above it. THIN when there is not enough history to
-// judge -- that is reported as its own state rather than being quietly folded
-// into a bearish-looking label.
+// BULL until two consecutive *completed* weekly closes (Sunday UTC) land under
+// the regime MA; back to BULL on the first Sunday close above it. The live
+// mid-week bar is ignored so a Wednesday dip after one weak Sunday cannot
+// flip the regime. THIN when there is not enough history to judge.
 function trendRegime(bars, maLen, weeks) {
   const n = maLen || REGIME_MA;
   const need = weeks || REGIME_WEEKS;
@@ -568,8 +568,7 @@ function trendRegime(bars, maLen, weeks) {
     if (i >= n) sum -= bars[i - n].c;
     if (i < n - 1) continue;
     ma = sum / n;
-    // A weekly close is a Sunday bar, plus the live partial week's latest bar.
-    if (i !== bars.length - 1 && new Date(bars[i].t).getUTCDay() !== 0) continue;
+    if (new Date(bars[i].t).getUTCDay() !== 0) continue;
     if (bars[i].c < ma) { run++; if (run >= need) broken = true; }
     else { run = 0; broken = false; }
   }
@@ -647,7 +646,13 @@ function actionFor(r, ps) {
 
   if (r.weeklyState === "BROKEN") return "EXIT";
   if (r.weeklyState === "THIN") return "HOLD";
-  if (r.dailyState === "CORRECTION") return r.cycle === "DISCOUNTED" ? "STAGED BID" : "HOLD RUNNER";
+  if (r.dailyState === "CORRECTION") {
+    // CORRECTION labels are usually chop, not a dip (median depth 0% in sample).
+    // Only bid if it is actually down 5%+ from the swing high that started it.
+    const start = r.daily && r.daily.lastH && r.daily.lastH.px;
+    const deep = r.close != null && start > 0 && r.close <= start * 0.95;
+    return (r.cycle === "DISCOUNTED" && deep) ? "STAGED BID" : "HOLD RUNNER";
+  }
   // EXTENDED outranks re-entry on purpose. Extension is where the swing sleeve
   // is sold, so buying it back there is chasing. A trimmed position that has
   // already run away is left at HOLD: do not chase it, but do not trim again
@@ -818,7 +823,7 @@ function render() {
     const wKind = r?.weeklyState === "BULL" ? "" : r?.weeklyState === "BROKEN" ? "down" : "mid";
     const aKind = action === "EXIT" ? "down" : action === "TRIM" ? "warn"
       : action === "RELOAD" || action === "STAGED BID" || action === "RE-ENTER" ? "" : "mid";
-    // The 200 DMA is the actual invalidation level now, so that is what the card shows.
+    // The regime MA (100 DMA) is the invalidation level now.
     const ma = r?.ma;
     const maDist = m.mark && ma ? 100 * (m.mark - ma) / m.mark : null;
     const liqDist = m.mark && m.liq ? 100 * (m.mark - m.liq) / m.mark : null;

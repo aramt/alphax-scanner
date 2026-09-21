@@ -119,7 +119,7 @@ group("Weekly structure (AGENTS.md claims 7, 8)");
 const DAY = 86400000, T0 = Date.UTC(2025, 0, 6);
 const series = () => {
   const px = [];
-  // Long enough that the 200 DMA exists (the regime gate needs 207 bars).
+  // Long enough that the regime MA exists (100 DMA + a week of weekly closes).
   for (let i = 0; i < 180; i++) px.push(20 + i * 0.222);     // long base rally
   for (let i = 0; i < 20; i++) px.push(60 - i * 0.6);        // pullback
   for (let i = 0; i < 50; i++) px.push(48 + i * 1.04);       // impulse to ~99 (trim here)
@@ -210,9 +210,16 @@ group("Re-entry guards");
 
   const corr = { ...bo, dailyState: "CORRECTION", cycle: "MID" };
   ok("an active correction outranks re-entry", actionFor(corr, TRIMMED) === "HOLD RUNNER");
+
+  const chop = { ...bo, dailyState: "CORRECTION", cycle: "DISCOUNTED", close: 98, daily: { lastH: { px: 100 }, tookHigh: false } };
+  ok("a fib-discounted correction with no real dip is HOLD RUNNER, not a bid",
+     actionFor(chop, TRIMMED) === "HOLD RUNNER", `got ${actionFor(chop, TRIMMED)}`);
+  const realDip = { ...chop, close: 90 };
+  ok("a 5%+ dip into the weekly box is STAGED BID",
+     actionFor(realDip, TRIMMED) === "STAGED BID", `got ${actionFor(realDip, TRIMMED)}`);
 }
 
-group("Regime gate (200 DMA, confirmed on weekly closes)");
+group("Regime gate (100 DMA, two completed Sunday closes)");
 {
   const DAYMS = 86400000;
   // Monday-anchored so weekly closes land on Sundays.
@@ -223,13 +230,20 @@ group("Regime gate (200 DMA, confirmed on weekly closes)");
 
   const up = mk(Array.from({ length: 300 }, (_, i) => 10 + i * 0.1));
   ok("a sustained uptrend is BULL", trendRegime(up).state === "BULL", `got ${trendRegime(up).state}`);
-  ok("the 200 DMA is reported for display", trendRegime(up).ma > 0);
+  ok("the regime MA is reported for display", trendRegime(up).ma > 0);
 
   // Same history, then a hard sustained break well below the average.
   const broke = mk([...Array.from({ length: 300 }, (_, i) => 10 + i * 0.1),
                     ...Array.from({ length: 30 }, () => 5)]);
-  ok("a sustained break below the 200 DMA is BROKEN",
+  ok("two Sunday closes below the 100 DMA is BROKEN",
      trendRegime(broke).state === "BROKEN", `got ${trendRegime(broke).state}`);
+
+  // 300 bars from Monday 2024-01-01: index 299 is Saturday, so the next bar is
+  // Sunday. Four crash days = one Sunday plus Mon-Wed. Must stay BULL.
+  const midweek = mk([...Array.from({ length: 300 }, (_, i) => 10 + i * 0.1),
+                      ...Array.from({ length: 4 }, () => 5)]);
+  ok("one weak Sunday plus a mid-week dip is not BROKEN",
+     trendRegime(midweek).state === "BULL", `got ${trendRegime(midweek).state}`);
 
   // A single dip that recovers inside the same week must not break the regime.
   const dip = mk([...Array.from({ length: 300 }, (_, i) => 10 + i * 0.1),
