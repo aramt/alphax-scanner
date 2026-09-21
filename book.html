@@ -244,6 +244,18 @@ const FUNDING_APR_DEFAULT = 8;
 const MOMENTUM_DAYS = 90;
 // 1 = full momentum tilt (what was tested), 0 = equal weight across BULL coins.
 const ALLOC_TILT = 1;
+// How much cash to hold? Tested on the same 6-coin basket. A FIXED reserve is
+// close to neutral -- it scales return and risk together (0% cash 2.60x/-77%,
+// 40% cash 2.31x/-55%), so picking a number is a risk-tolerance decision, not
+// an edge. Deploying in proportion to how much of the book is actually BULL is
+// a different thing entirely: 3.57x at -63%, better than full deployment on
+// BOTH axes. So cash is not a number you choose -- it is what is left over when
+// the broken coins stop getting an allocation.
+const DYNAMIC_CASH = true;
+// Belt and braces. Dynamic sizing already held the largest position to 29% on
+// the test basket, but a two-coin book would hand the leader 67%. A 33% cap was
+// non-binding in the test (identical results) and bounds that case.
+const MAX_WEIGHT = 0.33;
 const STORE = "htf-book-v1";
 const SYNC_STORE = "htf-book-sync-hash";
 const VIEW_STORE = "htf-book-view";
@@ -675,14 +687,21 @@ function fundingCost(events, apr, mark, now) {
 // stables. BULL coins are ranked by 90d momentum and weighted by rank; anything
 // not BULL targets zero, which is what makes "cut this one" a number instead of
 // a word. Pure so it can be tested: callers build `entries` from state.
-function allocTargets(entries, total, tilt) {
+function allocTargets(entries, total, tilt, opts) {
   const t = tilt == null ? ALLOC_TILT : tilt;
+  const cap = opts && opts.cap != null ? opts.cap : MAX_WEIGHT;
+  const dyn = opts && opts.dynamic != null ? opts.dynamic : DYNAMIC_CASH;
   const out = {};
   const bull = entries.filter(e => e.bull && e.mom != null).sort((a, b) => b.mom - a.mom);
   const n = bull.length;
   const denom = n * (n + 1) / 2;
+  // Deploy in proportion to how much of the book is in a bull regime. Cash is
+  // the remainder, so it rises on its own as coins break and falls as they
+  // recover -- no fixed percentage to pick or maintain.
+  const invest = dyn && entries.length ? n / entries.length : 1;
   bull.forEach((e, i) => {
-    const pct = n === 1 ? 1 : t * ((n - i) / denom) + (1 - t) / n;
+    const raw = n === 1 ? 1 : t * ((n - i) / denom) + (1 - t) / n;
+    const pct = Math.min(raw * invest, cap);
     out[e.id] = { pct, rank: i + 1, of: n, target: pct * total, delta: pct * total - e.margin };
   });
   entries.forEach(e => {
@@ -699,7 +718,10 @@ function allocationPlan() {
   });
   const deployed = entries.reduce((s, e) => s + Math.max(0, e.margin), 0);
   const total = deployed + (Number(state.stables) || 0);
-  return { plan: allocTargets(entries, total, ALLOC_TILT), total, deployed, dry: total - deployed };
+  const plan = allocTargets(entries, total, ALLOC_TILT);
+  const targetDeployed = Object.values(plan).reduce((s, a) => s + a.pct, 0);
+  const bulls = entries.filter(e => e.bull && e.mom != null).length;
+  return { plan, total, deployed, dry: total - deployed, targetDeployed, bulls, n: entries.length };
 }
 
 function metrics(pos) {
@@ -773,7 +795,7 @@ function render() {
   const pctDep = alloc.total > 0 ? 100 * alloc.deployed / alloc.total : 0;
   const under = Object.values(alloc.plan).filter(a => a.delta > 100).length;
   $("allocBar").textContent = state.positions.length
-    ? `${pctDep.toFixed(0)}% deployed · ${fmtUsd(alloc.dry, 0)} dry powder · ${fmtUsd(alloc.total, 0)} book · ${under} under suggested size`
+    ? `${alloc.bulls}/${alloc.n} BULL → suggest ${(100 * alloc.targetDeployed).toFixed(0)}% deployed, ${(100 * (1 - alloc.targetDeployed)).toFixed(0)}% cash · you are ${pctDep.toFixed(0)}% deployed with ${fmtUsd(alloc.dry, 0)} dry · ${under} under suggested size`
     : "";
   const el = $("cards");
   el.className = "wrap" + (simpleView && state.positions.length ? " simple" : "");

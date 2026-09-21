@@ -30,7 +30,7 @@ function grab(name) {
 const NAMES = ["fold", "sizeFromInputs", "bucketBars", "toDaily", "toWeekly",
                "swings", "structure", "stretchZ", "trendRegime", "fundingCost", "allocTargets", "daysSince", "regimeFromOhlc", "actionFor"];
 // The EXTENDED threshold is a top-level const, not a function.
-const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const ALLOC_TILT = [\d.]+;/)[0];
+const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const MAX_WEIGHT = [\d.]+;/)[0];
 const { fold, sizeFromInputs, structure, stretchZ, trendRegime, fundingCost, allocTargets, regimeFromOhlc, actionFor } =
   new Function(CONSTS + "\n" + NAMES.map(grab).join("\n") + `\nreturn {${NAMES.join(",")}};`)();
 
@@ -284,7 +284,7 @@ group("Suggested sizing");
   const sum = (p) => Object.values(p).reduce((s, x) => s + x.pct, 0);
 
   // Three BULL coins, $30k book. Rank by momentum: best gets the biggest share.
-  const p = allocTargets([E("a", true, 0.9, 2000), E("b", true, 0.5, 5000), E("c", true, 0.1, 9000)], 30000, 1);
+  const p = allocTargets([E("a", true, 0.9, 2000), E("b", true, 0.5, 5000), E("c", true, 0.1, 9000)], 30000, 1, { dynamic: false, cap: 1 });
   ok("strongest momentum is ranked first", p.a.rank === 1 && p.c.rank === 3);
   ok("weights sum to 1", Math.abs(sum(p) - 1) < 1e-9, `got ${sum(p)}`);
   ok("the leader gets the largest target", p.a.target > p.b.target && p.b.target > p.c.target);
@@ -294,21 +294,51 @@ group("Suggested sizing");
   ok("over-sized laggard is told to trim", p.c.delta < 0, `delta=${p.c.delta}`);
 
   // Not BULL -> target zero, i.e. "close this one", which is what makes EXIT a number.
-  const q = allocTargets([E("a", true, 0.9, 5000), E("dead", false, 0.9, 4000)], 20000, 1);
+  const q = allocTargets([E("a", true, 0.9, 5000), E("dead", false, 0.9, 4000)], 20000, 1, { dynamic: false, cap: 1 });
   ok("a non-BULL coin targets zero", q.dead.target === 0 && q.dead.rank === null);
   ok("a non-BULL coin is told to trim its whole margin", Math.abs(q.dead.delta + 4000) < 1e-9);
   ok("a BULL coin alone takes the whole book", Math.abs(q.a.pct - 1) < 1e-9);
 
   // tilt = 0 is equal weight; tilt = 1 is the tested rank weighting.
-  const eq = allocTargets([E("a", true, 0.9, 0), E("b", true, 0.1, 0)], 10000, 0);
+  const eq = allocTargets([E("a", true, 0.9, 0), E("b", true, 0.1, 0)], 10000, 0, { dynamic: false, cap: 1 });
   ok("tilt 0 gives equal weight", Math.abs(eq.a.pct - eq.b.pct) < 1e-9);
-  const tl = allocTargets([E("a", true, 0.9, 0), E("b", true, 0.1, 0)], 10000, 1);
+  const tl = allocTargets([E("a", true, 0.9, 0), E("b", true, 0.1, 0)], 10000, 1, { dynamic: false, cap: 1 });
   ok("tilt 1 favours the leader", tl.a.pct > tl.b.pct);
 
   ok("a coin with no momentum history is not ranked",
-     allocTargets([E("a", true, null, 1000)], 5000, 1).a.rank === null);
+     allocTargets([E("a", true, null, 1000)], 5000, 1, { dynamic: false }).a.rank === null);
   ok("an empty book produces an empty plan",
      Object.keys(allocTargets([], 10000, 1)).length === 0);
+}
+
+group("Cash is what is left over");
+{
+  const E = (id, bull, mom, margin) => ({ id, bull, mom, margin });
+  const dep = (p) => Object.values(p).reduce((s, x) => s + x.pct, 0);
+  const five = (nBull) => Array.from({ length: 5 }, (_, i) => E("c" + i, i < nBull, 0.9 - i * 0.1, 0));
+
+  // At five coins the leader's rank weight is 33.3%, so the 33% cap shaves a
+  // few basis points into cash. That is the cap working, not a rounding bug.
+  ok("all five BULL suggests near-full deployment", dep(allocTargets(five(5), 1e5, 1)) >= 0.99,
+     `got ${(100 * dep(allocTargets(five(5), 1e5, 1))).toFixed(1)}%`);
+  ok("three of five BULL suggests 60% deployed", Math.abs(dep(allocTargets(five(3), 1e5, 1)) - 0.6) < 1e-9);
+  ok("one of five BULL suggests 20% deployed", Math.abs(dep(allocTargets(five(1), 1e5, 1)) - 0.2) < 1e-9);
+  ok("none BULL suggests all cash", dep(allocTargets(five(0), 1e5, 1)) === 0);
+
+  ok("cash rises as coins break",
+     dep(allocTargets(five(5), 1e5, 1)) > dep(allocTargets(five(3), 1e5, 1)));
+
+  // The flaw this fixes: a lone survivor used to be handed the entire book.
+  const lone = allocTargets(five(1), 1e5, 1);
+  ok("a lone BULL coin is not handed the whole book",
+     lone.c0.pct <= 0.33 + 1e-9, `got ${(100 * lone.c0.pct).toFixed(0)}%`);
+
+  // Small books: two coins, rank weights would be 67/33 without a cap.
+  const two = allocTargets([E("a", true, 0.9, 0), E("b", true, 0.1, 0)], 1e5, 1);
+  ok("no single position exceeds the cap", two.a.pct <= 0.33 + 1e-9, `got ${(100 * two.a.pct).toFixed(0)}%`);
+
+  ok("dynamic can be switched off",
+     Math.abs(dep(allocTargets(five(3), 1e5, 1, { dynamic: false, cap: 1 })) - 1) < 1e-9);
 }
 
 console.log(`\n${fail ? "FAILED" : "ok"} — ${pass} passed, ${fail} failed\n`);

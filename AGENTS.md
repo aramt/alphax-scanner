@@ -241,9 +241,31 @@ action labels never carried a number for.
 Capital is derived, not entered: **total = deployed margin + stables**, both
 already in the book. BULL coins are ranked by **90-day momentum** and weighted
 by rank; anything not BULL targets **zero**, which is what turns "cut this one"
-into a dollar figure. Targets sum to total capital, so suggested adds minus
-suggested trims always equals available dry powder — the plan is fundable by
-construction.
+into a dollar figure.
+
+**Cash is not a percentage you choose.** The book deploys in proportion to how
+much of it is actually in a bull regime — 5 of 5 BULL suggests ~100% deployed,
+3 of 5 suggests 60%, 1 of 5 suggests 20%, none suggests all cash. Cash is the
+remainder, so it rises on its own as coins break and falls as they recover.
+
+Tested on the same 6-coin basket:
+
+| policy | return | maxDD | return/DD | largest position |
+|---|---|---|---|---|
+| 0% cash floor (full deployment) | 2.60x | −77% | 0.034 | **100%** |
+| 20% fixed cash floor | 2.56x | −67% | 0.038 | 80% |
+| 40% fixed cash floor | 2.31x | −55% | 0.042 | 60% |
+| **dynamic (bull share)** | **3.57x** | **−63%** | **0.057** | **29%** |
+
+A **fixed** reserve is close to neutral — it scales return and risk down
+together, so the number is a risk-tolerance choice, not an edge. **Dynamic cash
+beat full deployment on both axes.** `DYNAMIC_CASH = false` reverts to always
+fully deployed.
+
+`MAX_WEIGHT` (0.33) bounds any single position. Dynamic sizing already held the
+largest to 29% on the test basket, but a two-coin book would otherwise hand the
+leader 67%. Before this, a lone surviving BULL coin was handed **100%** of the
+book — at 2x that was the worst bug in the sizing model.
 
 **Why momentum.** Cross-sectional test on 8.7 years of OKX daily closes, 6
 coins, weekly samples, 30-day forward, top-half minus bottom-half:
