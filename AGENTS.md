@@ -566,11 +566,11 @@ Actions, in precedence order:
 | Condition | Action |
 |---|---|
 | Weekly BROKEN | **EXIT** |
-| Effective lev > house × 1.25 | **DE-LEVER** |
 | Daily CORRECTION + weekly-discounted + **≥5% below the starting swing high** | **STAGED BID** |
 | Daily CORRECTION (otherwise) | **HOLD RUNNER** |
-| EXTENDED, position already trimmed | **HOLD** (missed it — do not chase, do not trim again) |
-| EXTENDED, position full | **TRIM** |
+| EXTENDED and **off the 5-day high by ≥4%**, already trimmed | **HOLD** |
+| EXTENDED and off the 5-day high, full size | **TRIM** (~15%, not 30%) |
+| EXTENDED but still at the highs | **RIDE** |
 | Reclaim conditions above | **RE-ENTER** |
 | DISCOUNTED + weekly UP + daily UP | **RELOAD** |
 | else | **HOLD** |

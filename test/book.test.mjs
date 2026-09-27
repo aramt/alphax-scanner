@@ -28,9 +28,9 @@ function grab(name) {
 }
 
 const NAMES = ["fold", "sizeFromInputs", "bucketBars", "toDaily", "toWeekly",
-               "swings", "structure", "stretchZ", "trendRegime", "fundingCost", "allocTargets", "daysSince", "regimeFromOhlc", "actionFor", "marginToHouse", "consider"];
+               "swings", "structure", "stretchZ", "trendRegime", "fundingCost", "allocTargets", "daysSince", "stallFromCloses", "regimeFromOhlc", "actionFor", "marginToHouse", "marginAdvice", "consider"];
 const CONSTS = src.match(/const EXTENDED_Z = [\d.]+;[\s\S]*?const GOAL_USD = [\d.]+;/)[0];
-const { fold, sizeFromInputs, structure, stretchZ, trendRegime, fundingCost, allocTargets, regimeFromOhlc, actionFor, marginToHouse, consider } =
+const { fold, sizeFromInputs, structure, stretchZ, trendRegime, fundingCost, allocTargets, regimeFromOhlc, actionFor, marginToHouse, marginAdvice, consider, stallFromCloses } =
   new Function("const fmtUsd = (n) => n == null ? '—' : '$' + Math.round(Number(n));\n" + CONSTS + "\n" + NAMES.map(grab).join("\n") + `\nreturn {${NAMES.join(",")}};`)();
 
 let pass = 0, fail = 0;
@@ -194,15 +194,21 @@ group("Re-entry guards");
      actionFor(oneDay, TRIMMED) !== "RE-ENTER", `got ${actionFor(oneDay, TRIMMED)}`);
 
   // Both a valid reclaim AND already stretched: must not chase.
-  const chase = { ...bo, cycle: "EXTENDED", closes2: [trim + 5, trim + 9] };
-  ok("re-entry does not fire into an already EXTENDED move",
-     actionFor(chase, TRIMMED) === "HOLD", `got ${actionFor(chase, TRIMMED)}`);
+  const chase = { ...bo, cycle: "EXTENDED", stalling: false, closes2: [trim + 5, trim + 9] };
+  ok("re-entry does not fire while still on the highs (RIDE, not chase)",
+     actionFor(chase, TRIMMED) === "RIDE", `got ${actionFor(chase, TRIMMED)}`);
 
-  const extended = { ...bo, cycle: "EXTENDED", daily: { ...bo.daily, tookHigh: false } };
-  ok("trimmed + extended says HOLD, not TRIM (missed it, do not chase)",
-     actionFor(extended, TRIMMED) === "HOLD", `got ${actionFor(extended, TRIMMED)}`);
-  ok("untrimmed + extended still says TRIM",
-     actionFor(extended, FULL) === "TRIM");
+  const riding = { ...bo, cycle: "EXTENDED", stalling: false, daily: { ...bo.daily, tookHigh: true } };
+  ok("stretched but still at the highs is RIDE, not a 30% trim",
+     actionFor(riding, FULL) === "RIDE", `got ${actionFor(riding, FULL)}`);
+
+  const stalled = { ...riding, stalling: true };
+  ok("stretched AND off the high is a small trim",
+     actionFor(stalled, FULL) === "TRIM", `got ${actionFor(stalled, FULL)}`);
+  ok("already trimmed and still stalling is HOLD, not another trim",
+     actionFor(stalled, TRIMMED) === "HOLD", `got ${actionFor(stalled, TRIMMED)}`);
+  ok("a new high clears the stall and the call flips back to RIDE",
+     actionFor({ ...stalled, stalling: false }, FULL) === "RIDE");
 
   const broken = { ...bo, weeklyState: "BROKEN" };
   ok("weekly BROKEN overrides re-entry", actionFor(broken, TRIMMED) === "EXIT");
@@ -255,30 +261,38 @@ group("Regime gate (100 DMA, two completed Sunday closes)");
                { qty: 100, peakQty: 100, lastSell: null }) === "HOLD");
 }
 
-group("House leverage (de-lever before anything else)");
+group("House leverage is separate from the trade");
 {
-  const bull = { weeklyState: "BULL", dailyState: "UP", cycle: "MID", closes2: [1, 2], daily: { tookHigh: false } };
-  const hot = { ...bull, cycle: "EXTENDED" };
-  ok("10x on a BULL name is DE-LEVER, not HOLD",
-     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 10, houseLev: 2 }) === "DE-LEVER");
-  ok("10x plus stretch is still DE-LEVER, not TRIM (survive first)",
-     actionFor(hot, { qty: 100, peakQty: 100, lastSell: null, lev: 10, houseLev: 2 }) === "DE-LEVER");
-  ok("2x is not nagged",
-     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 2, houseLev: 2 }) === "HOLD");
+  const bull = { weeklyState: "BULL", dailyState: "UP", cycle: "MID", stalling: false, closes2: [1, 2], daily: { tookHigh: false } };
+  const hot = { ...bull, cycle: "EXTENDED", stalling: false };
+  const hot10 = { qty: 100, peakQty: 100, lastSell: null, lev: 10, houseLev: 2, marginNeed: 5000 };
+  ok("10x does not replace the trade call",
+     actionFor(bull, hot10) === "HOLD");
+  ok("10x plus stretch-at-highs is still RIDE, margin is separate",
+     actionFor(hot, hot10) === "RIDE");
+  ok("margin advice fires at 10x",
+     marginAdvice({ lev: 10, houseLev: 2, marginNeed: 5000, symbol: "LIT" }) != null);
+  ok("2x is not a margin nag",
+     marginAdvice({ lev: 2, houseLev: 2, marginNeed: 0 }) == null);
   ok("2.4x is inside slack",
-     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 2.4, houseLev: 2 }) === "HOLD");
-  ok("2.6x is DE-LEVER",
-     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 2.6, houseLev: 2 }) === "DE-LEVER");
+     marginAdvice({ lev: 2.4, houseLev: 2, marginNeed: 100 }) == null);
+  ok("2.6x is a margin nag and the trade stays HOLD",
+     actionFor(bull, { qty: 100, peakQty: 100, lastSell: null, lev: 2.6, houseLev: 2 }) === "HOLD"
+     && marginAdvice({ lev: 2.6, houseLev: 2, marginNeed: 400 }) != null);
   ok("weekly BROKEN still EXIT even at 10x",
-     actionFor({ ...bull, weeklyState: "BROKEN" }, { qty: 100, peakQty: 100, lastSell: null, lev: 10, houseLev: 2 }) === "EXIT");
-  ok("tests without lev still get the old action (no false DE-LEVER)",
-     actionFor(hot, { qty: 100, peakQty: 100, lastSell: null }) === "TRIM");
+     actionFor({ ...bull, weeklyState: "BROKEN" }, hot10) === "EXIT");
+  ok("4% off the 5-day high is a stall",
+     stallFromCloses([10, 10, 10, 10, 9.5]).stalling === true);
+  ok("a new high is not a stall",
+     stallFromCloses([8, 9, 9.5, 10, 10.2]).stalling === false);
   ok("$12,600 notional at 2x needs $5,300 more margin on $1,000 equity",
      Math.abs(marginToHouse(12600, 1000, 2) - 5300) < 1e-9);
   ok("UPnL counts as equity so a winner needs less extra margin",
      Math.abs(marginToHouse(32090, 6163 + 2200, 2) - (32090 / 2 - 8363)) < 1e-6);
-  ok("consider() speaks in trader English",
-     consider("DE-LEVER", { symbol: "LIT", lev: 10, houseLev: 2, marginNeed: 5000, liqPct: 11 }).headline === "Consider de-levering LIT");
+  ok("margin copy is separate from the trade",
+     consider("DE-LEVER", { symbol: "LIT", lev: 10, houseLev: 2, marginNeed: 5000, liqPct: 11 }).headline.indexOf("Margin, separate") === 0);
+  ok("ride copy does not say trim 30%",
+     consider("RIDE", { symbol: "ENA" }).headline === "Let ENA ride");
   ok("EXIT copy is sell everything",
      consider("EXIT", { symbol: "PUMP" }).headline === "Consider selling everything in PUMP");
 }
