@@ -292,6 +292,7 @@ function statusDetail(zone, band) {
 let book = null;
 let marks = {};
 let charts = {};
+let absent = new Set();
 let state = loadState();
 
 function loadState() {
@@ -312,6 +313,10 @@ function saveState() {
 function symbolFor(id) {
   const hit = PRESETS.find((p) => p[1] === id);
   return hit ? hit[0] : id.toUpperCase();
+}
+function removeBtn(id) {
+  if (id === "bitcoin") return "";
+  return `<button type="button" class="ghost" data-remove="${esc(id)}">Remove</button>`;
 }
 function barsFor(id) {
   if (charts[id]) return charts[id];
@@ -374,9 +379,14 @@ function cardHtml(id) {
   const mark = marks[id] && marks[id].usd;
   const band = bandFor(id, book && book.stats);
   const own = book && book.own && book.own[id];
-  if (!(mark > 0) || !band) {
+  if (!(mark > 0) || !band || absent.has(id)) {
+    const why = !band
+      ? "No history loaded."
+      : absent.has(id)
+        ? (mark > 0 ? "No daily history for this id." : "No coin with this id.")
+        : "Waiting on a price.";
     return `<article class="card"><div class="top"><div><h2>${esc(sym)}</h2><div class="px">…</div></div></div>
-      <p>${band ? "Waiting on a price." : "No history loaded."}</p></article>`;
+      <p>${why}</p><div class="row">${removeBtn(id)}</div></article>`;
   }
   const bars = withMark(barsFor(id), mark, Date.now());
   const leg = legHigh(bars, band.shallow);
@@ -385,7 +395,8 @@ function cardHtml(id) {
   const highT = override > 0 ? null : (leg && leg.highT);
   const zone = zoneFor(mark, high, band);
   if (!zone) {
-    return `<article class="card"><h2>${esc(sym)}</h2><p>Need a daily high before a buy price means anything.</p></article>`;
+    return `<article class="card"><h2>${esc(sym)}</h2><p>Need a daily high before a buy price means anything.</p>
+      <div class="row">${removeBtn(id)}</div></article>`;
   }
   const prior = !override && leg && leg.priorHigh
     ? `<p>Still ${pct1((leg.priorHigh - mark) / leg.priorHigh)} under the ${fmtDay(leg.priorT)} high of ${fmtPx(leg.priorHigh)}. That high has not been taken back, so this run is the bounce.
@@ -399,7 +410,7 @@ function cardHtml(id) {
   const highLine = highT
     ? `Run high ${fmtPx(leg.high)} on ${fmtDay(highT)}.`
     : `Using your high of ${fmtPx(high)}.`;
-  const remove = id === "bitcoin" ? "" : `<button type="button" class="ghost" data-remove="${esc(id)}">Remove</button>`;
+  const remove = removeBtn(id);
   return `<article class="card">
     <div class="top">
       <div>
@@ -453,20 +464,32 @@ async function refresh() {
       renderAudit();
     }
     const ids = state.ids;
+    absent = new Set();
     $("status").textContent = "Loading prices…";
     const price = await getJson(cgUrl("simple/price", {
       ids: ids.join(","),
       vs_currencies: "usd",
       include_24hr_change: "true",
     }));
-    ids.forEach((id) => { if (price[id]) marks[id] = price[id]; });
+    ids.forEach((id) => {
+      if (price[id] && Number(price[id].usd) > 0) marks[id] = price[id];
+      else if (!(marks[id] && marks[id].usd > 0)) absent.add(id);
+    });
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i];
-      if (book.closes && book.closes[id]) continue;
+      if ((book.closes && book.closes[id]) || absent.has(id)) continue;
       $("status").textContent = `Daily history ${i + 1} / ${ids.length} · ${symbolFor(id)}`;
-      const chart = await getJson(cgUrl("coins/" + id + "/market_chart", {
-        vs_currency: "usd", days: "365", interval: "daily",
-      }));
+      let chart;
+      try {
+        chart = await getJson(cgUrl("coins/" + id + "/market_chart", {
+          vs_currency: "usd", days: "365", interval: "daily",
+        }));
+      } catch (err) {
+        if (!/^404\b/.test(err.message || "")) throw err;
+        absent.add(id);
+        render();
+        continue;
+      }
       const rows = Array.isArray(chart && chart.prices) ? chart.prices : [];
       const by = new Map();
       rows.forEach(([ms, px]) => by.set(utcDay(ms), px));
@@ -476,9 +499,12 @@ async function refresh() {
     render();
     const open = book.cycles[book.cycles.length - 1];
     const since = open && open.sinceHigh;
-    $("status").textContent = since
+    const bad = ids.filter((id) => absent.has(id)).map(symbolFor);
+    let line = since
       ? `Prices as of the feed. Bitcoin's ${fmtDay(open.high)} high has not been taken back.`
       : "Prices as of the feed.";
+    if (bad.length) line += " No coin for " + bad.join(", ") + ".";
+    $("status").textContent = line;
   } catch (err) {
     $("status").textContent = err.message || String(err);
   } finally {
@@ -507,7 +533,12 @@ $("grid").addEventListener("click", (e) => {
   const t = e.target;
   if (!t || !t.dataset) return;
   if (t.dataset.remove && t.dataset.remove !== "bitcoin") {
-    state.ids = state.ids.filter((id) => id !== t.dataset.remove);
+    const id = t.dataset.remove;
+    state.ids = state.ids.filter((x) => x !== id);
+    delete state.overrides[id];
+    delete marks[id];
+    delete charts[id];
+    absent.delete(id);
     saveState();
     render();
   }
