@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pullbacks</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #141b24;
+    --line: #243041;
+    --text: #e8eef6;
+    --muted: #8b9bb0;
+    --accent: #3ee0b2;
+    --warn: #ffb020;
+    --down: #ff5d6c;
+    --up: #3ee0b2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, #173326 0%, transparent 50%), var(--bg);
+    color: var(--text);
+  }
+  header, .wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  header { padding-top: 28px; }
+  h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.03em; }
+  .sub, .note { color: var(--muted); line-height: 1.45; }
+  .sub { max-width: 760px; }
+  .nav { display: flex; gap: 8px; margin: 0 0 14px; flex-wrap: wrap; }
+  .nav a {
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .nav a.on { color: #062018; background: var(--accent); border-color: transparent; }
+  .bands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+  .band, .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .band h2, .card h2 { margin: 0; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .band .nums { margin: 8px 0 4px; font-size: 18px; letter-spacing: -0.02em; }
+  .band p, .card p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin: 8px 0 14px; }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+  input, select, button {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font: inherit;
+  }
+  button { background: var(--accent); color: #062018; font-weight: 700; cursor: pointer; border: 0; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 600; padding: 6px 10px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+  .chips button { background: #223044; color: var(--text); font-weight: 600; font-size: 12px; padding: 6px 10px; }
+  .status { color: var(--muted); min-height: 22px; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 28px; }
+  .top { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+  .px { font-size: 28px; letter-spacing: -0.03em; margin-top: 4px; }
+  .off { color: var(--muted); font-size: 13px; }
+  .pill {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    background: #223044;
+    color: var(--muted);
+  }
+  .pill.scale { background: #203027; color: var(--accent); }
+  .pill.deep { background: #3a2e14; color: var(--warn); }
+  .pill.past { background: #3a1820; color: var(--down); }
+  .levels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+  .levels div { background: #101720; border-radius: 10px; padding: 8px 10px; }
+  .levels span { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .levels b { font-size: 16px; font-weight: 650; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .row input { width: 140px; padding: 8px 10px; }
+  details { margin: 8px 0 28px; }
+  summary { cursor: pointer; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th, td { padding: 6px; border-bottom: 1px solid var(--line); text-align: right; }
+  th.name, td.name { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  @media (max-width: 800px) {
+    .bands, .levels { grid-template-columns: 1fr; }
+    .px { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <nav class="nav">
+    <a href="./">AlphaX perps</a>
+    <a href="./rh.html">RH trenches</a>
+    <a href="./book.html">HTF book</a>
+    <a class="on" href="./pullbacks.html">Pullbacks</a>
+  </nav>
+  <h1>Pullbacks</h1>
+  <p class="sub" id="intro">
+    Ballpark scale-in prices from how deep bull-market dips went before the uptrend resumed.
+    History, not a forecast. Opening this page is the alert.
+  </p>
+</header>
+<div class="wrap">
+  <div class="bands" id="bands"></div>
+  <div class="controls">
+    <div>
+      <label>Preset</label>
+      <select id="preset"></select>
+    </div>
+    <div>
+      <label>CoinGecko id</label>
+      <input id="gid" placeholder="solana" />
+    </div>
+    <button id="addBtn" type="button">Add</button>
+    <button id="refreshBtn" class="ghost" type="button">Refresh</button>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="status" id="status">Loading history…</div>
+  <div class="grid" id="grid"></div>
+  <details id="audit">
+    <summary>How the depths were measured</summary>
+    <div id="auditBody"></div>
+  </details>
+  <p class="note">
+    Depths are spot drops. On a 2× perp, a fall of about half is a liquidation, so a deep scale is a place to look, not an order.
+    The weekly trend still lives in the book: two Sunday closes under the 100-day average means the bull bet on that name is done.
+  </p>
+</div>
+<script>
+const PROXY = "https://aramt.com/alphax-scanner/api.php";
+const STORE = "pullbacks-v1";
+const PRESETS = [
+  ["BTC", "bitcoin"], ["ETH", "ethereum"],
+  ["HYPE", "hyperliquid"], ["RENDER", "render-token"], ["ENA", "ethena"],
+  ["PENDLE", "pendle"], ["PUMP", "pump-fun"], ["LIT", "lighter"], ["XPL", "plasma"],
+  ["SOL", "solana"], ["LINK", "chainlink"], ["AVAX", "avalanche-2"], ["DOGE", "dogecoin"]
+];
+const DEFAULT_IDS = ["bitcoin", "ethereum", "hyperliquid", "render-token", "ethena", "pendle", "pump-fun", "lighter", "plasma"];
+
+const $ = (id) => document.getElementById(id);
+
+function pct(x) {
+  if (x == null || !isFinite(x)) return "—";
+  return Math.round(x * 100) + "%";
+}
+function pct1(x) {
+  if (x == null || !isFinite(x)) return "—";
+  return (x * 100).toFixed(1) + "%";
+}
+function fmtPx(n) {
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 1000) return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (a >= 1) return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (a >= 0.01) return "$" + n.toFixed(4);
+  return "$" + n.toPrecision(3);
+}
+function fmtDay(v) {
+  if (v == null || v === "") return "";
+  const ms = typeof v === "string" ? Date.parse(v + "T00:00:00Z") : v;
+  const d = new Date(ms);
+  if (!isFinite(d.getTime())) return "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return d.getUTCDate() + " " + months[d.getUTCMonth()] + " " + d.getUTCFullYear();
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function utcDay(ms) {
+  const d = new Date(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+function bandFor(id, stats) {
+  if (!stats) return null;
+  if (id === "bitcoin") return stats.btc || null;
+  if (id === "ethereum") return stats.eth || null;
+  return stats.alt || null;
+}
+function historyName(id) {
+  if (id === "bitcoin") return "Bitcoin";
+  if (id === "ethereum") return "Ethereum";
+  return "the alt basket";
+}
+
+// High of this run: the highest close since the last dip that reached `shallow`
+// and then rallied that same amount off its low. A higher high that was never
+// taken back is returned as priorHigh.
+function legHigh(bars, shallow) {
+  if (!bars || !bars.length || !(shallow > 0)) return null;
+  let runHigh = bars[0].c, runT = bars[0].t, trough = bars[0].c, inDip = false;
+  let refHigh = runHigh, refT = runT, priorHigh = null, priorT = null;
+  for (const bar of bars) {
+    const c = bar.c;
+    if (!inDip) {
+      if (c >= runHigh) {
+        runHigh = c;
+        runT = bar.t;
+        trough = c;
+        refHigh = runHigh;
+        refT = runT;
+        if (priorHigh != null && c >= priorHigh) { priorHigh = null; priorT = null; }
+      } else if (c <= runHigh * (1 - shallow)) {
+        inDip = true;
+        trough = c;
+        refHigh = runHigh;
+        refT = runT;
+      }
+    } else if (c < trough) {
+      trough = c;
+    } else if (c >= trough * (1 + shallow)) {
+      const oldHigh = runHigh, oldT = runT;
+      inDip = false;
+      runHigh = c;
+      runT = bar.t;
+      trough = c;
+      refHigh = runHigh;
+      refT = runT;
+      const ceiling = priorHigh == null ? oldHigh : Math.max(priorHigh, oldHigh);
+      if (c >= ceiling) {
+        priorHigh = null;
+        priorT = null;
+      } else if (priorHigh == null || oldHigh >= priorHigh) {
+        priorHigh = oldHigh;
+        priorT = oldT;
+      }
+    }
+  }
+  return { high: refHigh, highT: refT, inDip, priorHigh, priorT };
+}
+
+function withMark(bars, mark, nowMs) {
+  const out = (bars || []).map((b) => ({ t: b.t, c: b.c }));
+  if (!(mark > 0)) return out;
+  const day = utcDay(nowMs);
+  if (!out.length || day > out[out.length - 1].t) out.push({ t: day, c: mark });
+  else if (day === out[out.length - 1].t) out[out.length - 1] = { t: day, c: mark };
+  return out;
+}
+
+function zoneFor(price, high, band) {
+  if (!(price > 0) || !(high > 0) || !band) return null;
+  const dd = (high - price) / high;
+  let state = "notyet";
+  if (dd > band.worst) state = "past";
+  else if (dd >= band.deep) state = "deep";
+  else if (dd >= band.typical) state = "scale";
+  return {
+    dd,
+    state,
+    shallowPx: high * (1 - band.shallow),
+    typicalPx: high * (1 - band.typical),
+    deepPx: high * (1 - band.deep),
+    worstPx: high * (1 - band.worst),
+  };
+}
+
+function statusText(state) {
+  if (state === "scale") return "Scale in";
+  if (state === "deep") return "Deep scale";
+  if (state === "past") return "Deeper than the dips that came back";
+  return "Not yet";
+}
+
+function statusDetail(zone, band) {
+  const typical = pct(band.typical);
+  const deep = pct(band.deep);
+  const worst = pct(band.worst);
+  if (zone.state === "scale") {
+    return "Around the middle of the dips that later made a new high. Typical was " + typical + ".";
+  }
+  if (zone.state === "deep") {
+    return "The deeper end of the dips that later made a new high. Deep was " + deep + ".";
+  }
+  if (zone.state === "past") {
+    return "Past the deepest dip that still came back (" + worst + "). Check the weekly trend in the book before adding.";
+  }
+  return pct1(zone.dd) + " off this high. Typical scale-in is " + typical + " down.";
+}
+
+let book = null;
+let marks = {};
+let charts = {};
+let state = loadState();
+
+function loadState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE) || "{}");
+    const ids = Array.isArray(saved.ids) ? saved.ids.filter((id) => /^[a-z0-9-]+$/.test(id)) : [];
+    const overrides = saved.overrides && typeof saved.overrides === "object" ? saved.overrides : {};
+    const use = ids.length ? ids : DEFAULT_IDS.slice();
+    if (!use.includes("bitcoin")) use.unshift("bitcoin");
+    return { ids: use, overrides };
+  } catch (e) {
+    return { ids: DEFAULT_IDS.slice(), overrides: {} };
+  }
+}
+function saveState() {
+  localStorage.setItem(STORE, JSON.stringify(state));
+}
+function symbolFor(id) {
+  const hit = PRESETS.find((p) => p[1] === id);
+  return hit ? hit[0] : id.toUpperCase();
+}
+function barsFor(id) {
+  if (charts[id]) return charts[id];
+  const rows = book && book.closes && book.closes[id];
+  if (!rows) return [];
+  return rows.map(([d, c]) => ({ t: Date.parse(d + "T00:00:00Z"), c: Number(c) }));
+}
+
+function renderBands() {
+  const order = [["btc", "Bitcoin"], ["eth", "Ethereum"], ["alt", "Alts"]];
+  $("bands").innerHTML = order.map(([key, title]) => {
+    const s = book.stats[key];
+    const w = s.worstEpisode;
+    const worst = w
+      ? ` Deepest that came back: ${pct(w.depth)} (${esc(w.symbol)}, ${fmtDay(w.peakDate)} – ${fmtDay(w.troughDate)}).`
+      : "";
+    return `<div class="band">
+      <h2>${title}</h2>
+      <div class="nums">${pct(s.shallow)} · ${pct(s.typical)} · ${pct(s.deep)}</div>
+      <p>${s.n} resumed dips. About ${s.medianDaysDown} days down, high taken back in about ${s.medianDaysBack} days.${worst}</p>
+      <p>${esc(s.reason)}</p>
+    </div>`;
+  }).join("");
+}
+
+function renderAudit() {
+  const open = book.cycles[book.cycles.length - 1];
+  const since = open && open.sinceHigh;
+  const cycleLine = book.cycles.map((c) => {
+    const end = c.complete ? "cycle high, later taken out" : "high so far, not taken back";
+    return `${fmtDay(c.low)} low → ${fmtDay(c.high)} high ($${Math.round(c.highPrice).toLocaleString()}, ${end})`;
+  }).join("<br>");
+  const sinceLine = since
+    ? `From the ${fmtDay(open.high)} high, Bitcoin fell ${pct(since.maxDrawdown)} to ${fmtDay(since.trough)} and is still ${pct(since.stillOff)} under that high. That drop has not taken the high back, so it is not in the averages.`
+    : "";
+  const coins = (book.coinStats || []).map((c) =>
+    `<tr><td class="name">${esc(c.symbol)}</td><td>${c.n}</td><td>${pct(c.median)}</td><td>${esc(c.kind)}</td></tr>`
+  ).join("");
+  $("auditBody").innerHTML = `
+    <p class="note">${esc(book.method)}</p>
+    <p class="note">${cycleLine}</p>
+    <p class="note">${sinceLine}</p>
+    <p class="note">Alt basket: ${esc(book.basket.join(", "))}. A coin with no bull of its own, including the newer book names, uses this basket.</p>
+    <table>
+      <thead><tr><th class="name">Coin</th><th>Dips</th><th>Median</th><th>Group</th></tr></thead>
+      <tbody>${coins}</tbody>
+    </table>`;
+}
+
+function render() {
+  const chips = PRESETS.map(([sym, id]) =>
+    `<button type="button" data-add="${esc(id)}">${esc(sym)}</button>`
+  ).join("");
+  $("chips").innerHTML = chips;
+  $("grid").innerHTML = state.ids.map((id) => cardHtml(id)).join("");
+}
+
+function cardHtml(id) {
+  const sym = symbolFor(id);
+  const mark = marks[id] && marks[id].usd;
+  const band = bandFor(id, book && book.stats);
+  const own = book && book.own && book.own[id];
+  if (!(mark > 0) || !band) {
+    return `<article class="card"><div class="top"><div><h2>${esc(sym)}</h2><div class="px">…</div></div></div>
+      <p>${band ? "Waiting on a price." : "No history loaded."}</p></article>`;
+  }
+  const bars = withMark(barsFor(id), mark, Date.now());
+  const leg = legHigh(bars, band.shallow);
+  const override = Number(state.overrides[id]);
+  const high = override > 0 ? override : (leg && leg.high);
+  const highT = override > 0 ? null : (leg && leg.highT);
+  const zone = zoneFor(mark, high, band);
+  if (!zone) {
+    return `<article class="card"><h2>${esc(sym)}</h2><p>Need a daily high before a buy price means anything.</p></article>`;
+  }
+  const prior = !override && leg && leg.priorHigh
+    ? `<p>Still ${pct1((leg.priorHigh - mark) / leg.priorHigh)} under the ${fmtDay(leg.priorT)} high of ${fmtPx(leg.priorHigh)}. That high has not been taken back, so this run is the bounce.
+       <button type="button" class="ghost" data-use-prior="${esc(id)}" data-prior="${leg.priorHigh}">Use that high</button></p>`
+    : "";
+  const ownLine = id !== "bitcoin" && id !== "ethereum"
+    ? (own
+      ? `<p>This coin's own resumed dips: typical ${pct(own.typical)} over ${own.n} dips. The scale above uses ${historyName(id)}.</p>`
+      : `<p>No finished bull of its own. The scale uses ${historyName(id)}.</p>`)
+    : "";
+  const highLine = highT
+    ? `Run high ${fmtPx(leg.high)} on ${fmtDay(highT)}.`
+    : `Using your high of ${fmtPx(high)}.`;
+  const remove = id === "bitcoin" ? "" : `<button type="button" class="ghost" data-remove="${esc(id)}">Remove</button>`;
+  return `<article class="card">
+    <div class="top">
+      <div>
+        <h2>${esc(sym)}</h2>
+        <div class="px">${fmtPx(mark)}</div>
+        <div class="off">${pct1(zone.dd)} off the high used below</div>
+      </div>
+      <div class="pill ${zone.state}">${statusText(zone.state)}</div>
+    </div>
+    <p>${statusDetail(zone, band)} ${highLine} About ${band.medianDaysDown} days down last time, high back in about ${band.medianDaysBack} days.</p>
+    <div class="levels">
+      <div><span>Shallow ${pct(band.shallow)}</span><b>${fmtPx(zone.shallowPx)}</b></div>
+      <div><span>Typical ${pct(band.typical)}</span><b>${fmtPx(zone.typicalPx)}</b></div>
+      <div><span>Deep ${pct(band.deep)}</span><b>${fmtPx(zone.deepPx)}</b></div>
+    </div>
+    ${prior}
+    ${ownLine}
+    <div class="row">
+      <input data-override="${esc(id)}" type="number" min="0" step="any" placeholder="Different high" value="${override > 0 ? override : ""}" />
+      ${remove}
+    </div>
+  </article>`;
+}
+
+function cgUrl(path, params) {
+  const u = new URL(PROXY);
+  u.searchParams.set("path", path);
+  Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+  return u.toString();
+}
+async function getJson(url) {
+  for (let i = 0; i < 4; i++) {
+    const res = await fetch(url);
+    if (res.status === 429) {
+      $("status").textContent = "CoinGecko rate limit. Waiting…";
+      await new Promise((r) => setTimeout(r, 8000 * (i + 1)));
+      continue;
+    }
+    if (!res.ok) throw new Error(res.status + " from the price proxy");
+    return res.json();
+  }
+  throw new Error("CoinGecko kept rate-limiting.");
+}
+
+async function refresh() {
+  $("refreshBtn").disabled = true;
+  try {
+    if (!book) {
+      book = await (await fetch("./pullbacks.json", { cache: "no-store" })).json();
+      renderBands();
+      renderAudit();
+    }
+    const ids = state.ids;
+    $("status").textContent = "Loading prices…";
+    const price = await getJson(cgUrl("simple/price", {
+      ids: ids.join(","),
+      vs_currencies: "usd",
+      include_24hr_change: "true",
+    }));
+    ids.forEach((id) => { if (price[id]) marks[id] = price[id]; });
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      if (book.closes && book.closes[id]) continue;
+      $("status").textContent = `Daily history ${i + 1} / ${ids.length} · ${symbolFor(id)}`;
+      const chart = await getJson(cgUrl("coins/" + id + "/market_chart", {
+        vs_currency: "usd", days: "365", interval: "daily",
+      }));
+      const rows = Array.isArray(chart && chart.prices) ? chart.prices : [];
+      const by = new Map();
+      rows.forEach(([ms, px]) => by.set(utcDay(ms), px));
+      charts[id] = [...by.entries()].sort((a, b) => a[0] - b[0]).map(([t, c]) => ({ t, c }));
+      render();
+    }
+    render();
+    const open = book.cycles[book.cycles.length - 1];
+    const since = open && open.sinceHigh;
+    $("status").textContent = since
+      ? `Prices as of the feed. Bitcoin's ${fmtDay(open.high)} high has not been taken back.`
+      : "Prices as of the feed.";
+  } catch (err) {
+    $("status").textContent = err.message || String(err);
+  } finally {
+    $("refreshBtn").disabled = false;
+  }
+}
+
+function addId(id) {
+  id = String(id || "").trim().toLowerCase();
+  if (!/^[a-z0-9-]+$/.test(id)) return;
+  if (!state.ids.includes(id)) state.ids.push(id);
+  saveState();
+  render();
+  refresh();
+}
+
+$("preset").innerHTML = PRESETS.map(([s, id]) => `<option value="${id}">${s}</option>`).join("");
+$("addBtn").addEventListener("click", () => addId($("gid").value || $("preset").value));
+$("gid").addEventListener("keydown", (e) => { if (e.key === "Enter") addId($("gid").value); });
+$("refreshBtn").addEventListener("click", refresh);
+$("chips").addEventListener("click", (e) => {
+  const id = e.target && e.target.dataset && e.target.dataset.add;
+  if (id) addId(id);
+});
+$("grid").addEventListener("click", (e) => {
+  const t = e.target;
+  if (!t || !t.dataset) return;
+  if (t.dataset.remove && t.dataset.remove !== "bitcoin") {
+    state.ids = state.ids.filter((id) => id !== t.dataset.remove);
+    saveState();
+    render();
+  }
+  if (t.dataset.usePrior) {
+    state.overrides[t.dataset.usePrior] = Number(t.dataset.prior);
+    saveState();
+    render();
+  }
+});
+$("grid").addEventListener("change", (e) => {
+  const t = e.target;
+  if (!t || !t.dataset || !t.dataset.override) return;
+  const n = Number(t.value);
+  if (n > 0) state.overrides[t.dataset.override] = n;
+  else delete state.overrides[t.dataset.override];
+  saveState();
+  render();
+});
+
+render();
+refresh();
+</script>
+</body>
+</html>

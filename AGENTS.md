@@ -8,13 +8,14 @@ Owner: Aram. Personal play-money tooling, not a product, not a broker, not a sig
 
 ## What this is
 
-Three small browser apps that share one static frontend and one PHP backend on SiteGround (`aramt.com`):
+Four small browser apps that share one static frontend and one PHP backend on SiteGround (`aramt.com`):
 
 | App | File | Job |
 |---|---|---|
 | **AlphaX Turnover Scanner** | `index.html` | Screen AlphaX USDT perps vs CoinGecko spot cap. Rank by turnover (spot vol / circulating cap) and 24h range. Discovery for *established-enough* names on AlphaX, originally for 24h isolated play-money scans. |
 | **RH Chain Trenches** | `rh.html` | Early **Robinhood Chain** (chain id `4663`) tokens as they appear in **Robinhood Wallet**, not the brokerage app. Rank by vol/liquidity on tokens created inside an age window. **Not** the HTF book. |
 | **HTF Book** | `book.html` | Position ledger + weekly/daily regime overlay for **larger, established** coins (HYPE, RENDER, ENA, PENDLE, PUMP, LIT, XPL, …). Ride a high-timeframe uptrend; trim local tops; reload local bottoms; flatten only when weekly structure is broken. |
+| **Pullbacks** | `pullbacks.html` | Ballpark scale-in prices from the depth of resumed bull-market dips. Bitcoin, Ethereum, and an alt basket each have a shallow / typical / deep band. Not the position book, and not the trenches. |
 
 They are linked in a shared nav. Styling is a single dark theme copied across pages (no framework, no build step).
 
@@ -27,6 +28,7 @@ Use **aramt.com** as the real app (PHP proxy, book sync, CoinGecko key). GitHub 
 - https://aramt.com/alphax-scanner/
 - https://aramt.com/alphax-scanner/rh.html
 - https://aramt.com/alphax-scanner/book.html
+- https://aramt.com/alphax-scanner/pullbacks.html
 - GitHub Pages: https://aramt.github.io/alphax-scanner/
 - Source: https://github.com/aramt/alphax-scanner (`main`)
 
@@ -40,6 +42,8 @@ Book data is **origin-agnostic** as long as the page talks to `book-store.php` o
 index.html          AlphaX scanner
 rh.html             Robinhood Chain trenches
 book.html           HTF position book (ledger + regime)
+pullbacks.html      Bull-dip scale-in prices
+pullbacks.json      Measured dip episodes and recent daily closes
 api.php             Allowlisted proxy → CoinGecko or DexPaprika
 book-store.php      GET/POST JSON book, keyed by SHA-256 of sync phrase
 config.php          GITIGNORED. CoinGecko demo API key. Lives on the server.
@@ -65,7 +69,7 @@ Do **not** commit `config.php`, cache JSON, or book JSON. Do **not** put API key
 ## Architecture
 
 ```
-Browser (index / rh / book)
+Browser (index / rh / book / pullbacks)
     │
     ├─ GET api.php?path=…              CoinGecko (default)
     ├─ GET api.php?src=dp&path=…       DexPaprika (RH trenches)
@@ -108,7 +112,7 @@ Local clone: `~/Local Sites/alphax-scanner`.
 
 ```bash
 # HTML/PHP
-scp -o BatchMode=yes index.html rh.html book.html api.php book-store.php \
+scp -o BatchMode=yes index.html rh.html book.html pullbacks.html pullbacks.json api.php book-store.php \
   siteground-aramt:www/aramt.com/public_html/alphax-scanner/
 
 # GitHub Pages (HTML only; PHP on GH Pages does not run)
@@ -592,6 +596,20 @@ These are labels, not orders. No auto-size, no broker sync.
 
 ---
 
+## App 4 — Pullbacks (`pullbacks.html`)
+
+Ballpark prices for scaling back in during a bull. Separate from the book: the book says whether the weekly uptrend is alive, this page says how deep resumed dips have been.
+
+A dip counts when daily closes fall at least 15% from a peak inside a Bitcoin cycle (cycle low to cycle high) and later close back through that peak before the cycle high. The drop off the cycle high does not count. The first 180 days after a coin's first bar are ignored. Each coin gets an equal vote. Shallow / typical / deep are the 25th / 50th / 75th percentiles. Worst is the deepest dip that still came back. Early-bull figures replace the full set only when that half is at least 5 points shallower and the choice actually moves the typical depth. On the measured set it did not, so the page uses every resumed dip.
+
+Bitcoin uses Bitcoin. Ethereum uses Ethereum. Every other ticker uses the alt basket (ADA, LINK, DOGE, ATOM, SOL, AVAX, DOT, UNI, AAVE, LTC, XRP). A coin with no finished bull of its own says so. The live high is the high of this run: the highest close since the last dip that reached the shallow band and then rallied that same amount off the low. A higher high that has not been taken back is shown beside it, and can be used as the high instead. The list lives in `localStorage` (`pullbacks-v1`), not in the book sync.
+
+History is measured by `test/measure-pullbacks.py` into `pullbacks.json` (Bitstamp daily closes for BTC, ETH, XRP, LTC; OKX 1Dutc for the rest). CoinGecko's demo plan rejects `days=max` with error 10012, so the page does not ask it for old cycles. Live marks still come through `api.php`. Coins missing from the JSON get a 365-day `market_chart`.
+
+These are spot depths. A deep scale is not an order, and on leverage a large spot drop can be a liquidation. Weekly invalidation stays in the book.
+
+---
+
 ## How to think about a review (“grade the homework”)
 
 Please grade against **intent**, not against a Bloomberg terminal.
@@ -649,6 +667,9 @@ Please grade against **intent**, not against a Bloomberg terminal.
 ```bash
 # Book logic (pure functions, extracted live from book.html -- no deps)
 node test/book.test.mjs
+
+# Pullback leg / zone logic, extracted from pullbacks.html
+node test/pullbacks.test.mjs
 
 # Gecko key is working
 curl -sS 'https://aramt.com/alphax-scanner/api.php?path=simple/price&ids=hyperliquid,ethena&vs_currencies=usd'
