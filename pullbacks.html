@@ -194,9 +194,10 @@ function historyName(id) {
   return "the alt basket";
 }
 
-// High of this run: the highest close since the last dip that reached `shallow`
-// and then rallied that same amount off its low. A higher high that was never
-// taken back is returned as priorHigh.
+// High of this run. `bars` are candle highs for the recent window (older bars
+// may be closes). The run resets only after a dip of `shallow` and a rally of
+// the same size off that low. A higher high that was never taken back is
+// returned as priorHigh.
 function legHigh(bars, shallow) {
   if (!bars || !bars.length || !(shallow > 0)) return null;
   let runHigh = bars[0].c, runT = bars[0].t, trough = bars[0].c, inDip = false;
@@ -245,8 +246,23 @@ function withMark(bars, mark, nowMs) {
   if (!(mark > 0)) return out;
   const day = utcDay(nowMs);
   if (!out.length || day > out[out.length - 1].t) out.push({ t: day, c: mark });
-  else if (day === out[out.length - 1].t) out[out.length - 1] = { t: day, c: mark };
+  else if (mark > out[out.length - 1].c) out[out.length - 1] = { t: day, c: mark };
   return out;
+}
+
+// Recent CoinGecko OHLC (4-day bars over 365 days) supplies the wick high.
+// Closes from before that window stay, so an older unreclaimed high is kept.
+function seriesFor(closes, ohlc) {
+  const highs = [];
+  (ohlc || []).forEach((row) => {
+    if (!row || row.length < 3 || !(Number(row[2]) > 0)) return;
+    highs.push({ t: Number(row[0]), c: Number(row[2]) });
+  });
+  highs.sort((a, b) => a.t - b.t);
+  if (!highs.length) return (closes || []).map((b) => ({ t: b.t, c: b.c }));
+  const cut = highs[0].t;
+  const older = (closes || []).filter((b) => b.t < cut);
+  return older.concat(highs);
 }
 
 function zoneFor(price, high, band) {
@@ -318,11 +334,14 @@ function removeBtn(id) {
   if (id === "bitcoin") return "";
   return `<button type="button" class="ghost" data-remove="${esc(id)}">Remove</button>`;
 }
-function barsFor(id) {
-  if (charts[id]) return charts[id];
+function embeddedBars(id) {
   const rows = book && book.closes && book.closes[id];
   if (!rows) return [];
   return rows.map(([d, c]) => ({ t: Date.parse(d + "T00:00:00Z"), c: Number(c) }));
+}
+function barsFor(id) {
+  if (charts[id]) return charts[id];
+  return embeddedBars(id);
 }
 
 function renderBands() {
@@ -477,12 +496,12 @@ async function refresh() {
     });
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i];
-      if ((book.closes && book.closes[id]) || absent.has(id)) continue;
-      $("status").textContent = `Daily history ${i + 1} / ${ids.length} · ${symbolFor(id)}`;
-      let chart;
+      if (absent.has(id)) continue;
+      $("status").textContent = `Highs ${i + 1} / ${ids.length} · ${symbolFor(id)}`;
+      let ohlc;
       try {
-        chart = await getJson(cgUrl("coins/" + id + "/market_chart", {
-          vs_currency: "usd", days: "365", interval: "daily",
+        ohlc = await getJson(cgUrl("coins/" + id + "/ohlc", {
+          vs_currency: "usd", days: "365",
         }));
       } catch (err) {
         if (!/^404\b/.test(err.message || "")) throw err;
@@ -490,10 +509,9 @@ async function refresh() {
         render();
         continue;
       }
-      const rows = Array.isArray(chart && chart.prices) ? chart.prices : [];
-      const by = new Map();
-      rows.forEach(([ms, px]) => by.set(utcDay(ms), px));
-      charts[id] = [...by.entries()].sort((a, b) => a[0] - b[0]).map(([t, c]) => ({ t, c }));
+      const rows = Array.isArray(ohlc) ? ohlc : [];
+      charts[id] = seriesFor(embeddedBars(id), rows);
+      if (!charts[id].length) absent.add(id);
       render();
     }
     render();

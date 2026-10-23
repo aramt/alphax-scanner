@@ -23,9 +23,9 @@ function grab(name) {
   throw new Error(`unbalanced braces in ${name}`);
 }
 
-const NAMES = ["pct", "pct1", "utcDay", "bandFor", "legHigh", "withMark", "zoneFor", "statusText", "statusDetail"];
+const NAMES = ["pct", "pct1", "utcDay", "bandFor", "legHigh", "withMark", "seriesFor", "zoneFor", "statusText", "statusDetail"];
 const api = new Function(NAMES.map(grab).join("\n") + `\nreturn {${NAMES.join(",")}};`)();
-const { bandFor, legHigh, withMark, zoneFor, statusText, statusDetail } = api;
+const { bandFor, legHigh, withMark, seriesFor, zoneFor, statusText, statusDetail } = api;
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = "") => {
@@ -95,8 +95,25 @@ console.log("\nLive mark");
   const next = withMark(hist, 13, hist[hist.length - 1].t + DAY + 3600000);
   ok("a later mark extends the series", next.length === 4 && near(next[3].c, 13));
   const same = withMark(hist, 15, hist[hist.length - 1].t + 3600000);
-  ok("a mark on the last day replaces that close", same.length === 3 && near(same[2].c, 15));
+  ok("a higher mark on the last day raises the high", same.length === 3 && near(same[2].c, 15));
+  const lower = withMark(hist, 9, hist[hist.length - 1].t + 3600000);
+  ok("a lower mark on the last day does not erase the high", lower.length === 3 && near(lower[2].c, 12));
   ok("the input series is not mutated", near(hist[2].c, 12));
+}
+
+console.log("\nWick series");
+{
+  const closes = bars([5, 6, 7]);
+  const ohlc = [
+    [closes[1].t, 6, 9, 5, 6],
+    [closes[2].t, 7, 8, 4, 5],
+  ];
+  const series = seriesFor(closes, ohlc);
+  ok("older closes stay in front of the wick window", series.length === 3 && near(series[0].c, 5));
+  ok("the overlapping window uses the wick, not the close", near(series[1].c, 9) && near(series[2].c, 8));
+  ok("no wick data leaves the closes alone", seriesFor(closes, []).length === 3 && near(seriesFor(closes, [])[2].c, 7));
+  const leg = legHigh(series, 0.2);
+  ok("the run high is the wick", leg && near(leg.high, 9));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
